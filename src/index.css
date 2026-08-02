@@ -1,0 +1,31 @@
+:root {
+  --bg: #f7f4ef;
+  --text: #2c2a26;
+  --text-muted: #6e6a63;
+
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background-color: var(--bg);
+}
+
+#root {
+  width: 100%;
+  min-height: 100svh;
+}
