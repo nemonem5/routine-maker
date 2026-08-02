@@ -19,23 +19,45 @@ export const PLANNER_GEOMETRY = {
   dividerHubRatio: 0.02,
 }
 
+/**
+ * All px-based values below are tuned for a canvas drawn at `PLANNER_SIZE`.
+ * `drawPlanner` scales them by `size / PLANNER_SIZE` so the circle keeps the
+ * same proportions whether it's the small wallpaper-board preview, the main
+ * editor, or a multi-thousand-pixel PNG export tile.
+ */
 export const PLANNER_STYLE = {
   ringFill: '#ffffff',
   strokeWidth: 1.25,
-  dividerWidth: 0.75,
-  /** Softer same-color dividers: small sat bump, tiny darkening. */
-  dividerSatDelta: 6,
-  dividerLightDelta: -5,
+  /** Never let the outer ring fall under a device pixel once the stage is
+   *  rendered small (e.g. a narrow window) — same idea as dividerMinWidth. */
+  strokeMinWidth: 1,
+  dividerWidth: 1.4,
+  /** Never let the stroke fall under a device pixel once the stage is scaled. */
+  dividerMinWidth: 1,
+  /** Color-boundary dividers: a quiet step from the fill itself. */
+  dividerSatDelta: 3,
+  /** Luminance contrast a boundary stroke must clear against BOTH fills. */
+  dividerMinContrast: 1.35,
+  /** Softer target where a fill meets the bare disk — it's only an outline. */
+  dividerEdgeMinContrast: 1.2,
+  /** Empty-hour grid rays (both sides unpainted). */
+  emptyDividerColor: 'rgba(44, 42, 38, 0.14)',
   /** Hour labels relative to page background. */
   labelLightDelta: -24,
   labelSatDelta: 4,
-  labelFont: '500 12px "Segoe UI", system-ui, sans-serif',
+  labelFontSize: 13,
+  /** Never shrink below this so small board thumbnails stay legible. */
+  labelMinFontPx: 8,
+  labelFontWeight: 500,
+  labelFontFamily: '"Segoe UI", system-ui, sans-serif',
   previewAlpha: 0.45,
 }
 
 /**
  * Paint palettes (UI order): red → teal → blue → pastel → mono.
  * Each has 12 colors. `accent` fills the sparkle preview icon.
+ * The darkest swatch in each list is kept a touch lighter than
+ * `ringStroke` so no fill can ever read as darker than the outline.
  */
 export const COLOR_THEMES = {
   red: {
@@ -50,13 +72,13 @@ export const COLOR_THEMES = {
       '#c4c1b8',
       '#bea8a1',
       '#9d8a85',
-      '#845451',
-      '#6e3a3c',
-      '#5b272c',
-      '#561f22',
-      '#3c1c1d',
-      '#301415',
-      '#130f0d',
+      '#a16966',
+      '#a05457',
+      '#9f444d',
+      '#9a373d',
+      '#823d3f',
+      '#7a3336',
+      '#5c493f',
     ],
   },
   teal: {
@@ -71,13 +93,13 @@ export const COLOR_THEMES = {
       '#b2cec2',
       '#7dac9e',
       '#68aa9e',
-      '#4e9f90',
-      '#2e8a80',
-      '#187874',
-      '#15625e',
-      '#02494d',
-      '#014749',
-      '#022b2f',
+      '#53a999',
+      '#3aafa3',
+      '#24b4ae',
+      '#23a39c',
+      '#05a7b0',
+      '#029ca0',
+      '#067f8b',
     ],
   },
   blue: {
@@ -94,11 +116,11 @@ export const COLOR_THEMES = {
       '#b2cddf',
       '#94a9be',
       '#7087bb',
-      '#495589',
-      '#3a4a7a',
-      '#2e3e6d',
-      '#152a3f',
-      '#0e182a',
+      '#5866a4',
+      '#4b609f',
+      '#405698',
+      '#326395',
+      '#2d4d87',
     ],
   },
   pastel: {
@@ -118,8 +140,8 @@ export const COLOR_THEMES = {
       '#f0e0c8',
       '#e8d4ea',
       '#d4e6d8',
-      '#d8c4b8',
-      '#c8b4a8',
+      '#dccbc0',
+      '#d2c2b8',
     ],
   },
   mono: {
@@ -137,10 +159,10 @@ export const COLOR_THEMES = {
       '#8f9295',
       '#7f8895',
       '#636d79',
-      '#464c55',
-      '#302f33',
-      '#1e1d20',
-      '#141214',
+      '#505761',
+      '#4e4c53',
+      '#46434a',
+      '#413b41',
     ],
   },
 }
@@ -154,7 +176,10 @@ const THEME_ALIASES = {
 
 export const DEFAULT_THEME_ID = 'red'
 export const DEFAULT_PLANNER_TITLE = ''
-export const MAX_DAYS = 7
+/** Total day tabs allowed (7 weekdays + custom-named days). */
+export const MAX_DAYS = 14
+export const MAX_CUSTOM_DAY_LABEL_LENGTH = 12
+export const DEFAULT_CUSTOM_DAY_LABEL = '이름없음'
 
 export const WEEKDAYS = [
   { id: 'mon', label: 'mon' },
@@ -171,9 +196,15 @@ export const DEFAULT_STICKER_SIZE_RATIO = 0.09
 export const MIN_STICKER_SIZE_RATIO = 0.04
 export const MAX_STICKER_SIZE_RATIO = 0.45
 
-/** Planner square size (CSS px). */
-export const DEFAULT_CANVAS_SIZE = 640
-export const MIN_CANVAS_SIZE = 280
+/** Fixed planner (circle) canvas size in CSS px. */
+export const PLANNER_SIZE = 560
+
+/** Background square size (independent of the circle). */
+export const DEFAULT_BACKGROUND_SIZE = 560
+export const MIN_BACKGROUND_SIZE = 560
+/** @deprecated kept for older saves — migrated to backgroundSize */
+export const DEFAULT_CANVAS_SIZE = DEFAULT_BACKGROUND_SIZE
+export const MIN_CANVAS_SIZE = MIN_BACKGROUND_SIZE
 export const MAX_CANVAS_SIZE = 1400
 
 export const DEFAULT_STICKER_CATEGORY_ID = 'general'
@@ -190,10 +221,71 @@ export function createEmptyStickerLibrary() {
 
 export const TOOLS = {
   paint: 'paint',
-  erase: 'erase',
   sticker: 'sticker',
+  /** @deprecated Cleared via double-click in paint mode; kept for old sessions. */
+  erase: 'erase',
 }
 
+/** Editor vs composition/export board. */
+export const APP_MODES = {
+  edit: 'edit',
+  wallpaper: 'wallpaper',
+}
+
+/**
+ * Composition artboard presets (aspect only).
+ * Preview fits the viewport; PNG export uses a high long-edge resolution.
+ * `custom` uses customAspectW / customAspectH instead of a fixed aspect.
+ */
+export const ARTBOARD_PRESETS = {
+  // Galaxy S10 panel: 1440x3040 (19:9).
+  phone: { id: 'phone', label: '세로', aspect: 1440 / 3040 },
+  desktop: { id: 'desktop', label: '와이드', aspect: 16 / 9 },
+  square: { id: 'square', label: '정사각', aspect: 1 },
+  custom: { id: 'custom', label: '지정', aspect: null },
+}
+
+export const DEFAULT_ARTBOARD_PRESET = 'desktop'
+export const DEFAULT_CUSTOM_ASPECT_W = 4
+export const DEFAULT_CUSTOM_ASPECT_H = 3
+export const MIN_ASPECT_SIDE = 1
+export const MAX_ASPECT_SIDE = 99
+export const ARTBOARD_PREVIEW_MAX = 780
+/** Longer edge of exported PNG in pixels. */
+export const WALLPAPER_EXPORT_LONG_EDGE = 3000
+
+/** @deprecated use ARTBOARD_PRESETS.phone.aspect */
+export const WALLPAPER_ASPECT = ARTBOARD_PRESETS.phone.aspect
+export const WALLPAPER_MAX_HEIGHT = ARTBOARD_PREVIEW_MAX
+export const WALLPAPER_DEFAULT_CIRCLE_RATIO = 0.42
+export const WALLPAPER_MIN_CIRCLE_RATIO = 0.18
+export const WALLPAPER_MAX_CIRCLE_RATIO = 0.72
+
+export function clampAspectSide(value, fallback) {
+  const n = Number(value)
+  if (!Number.isFinite(n)) return fallback
+  return Math.min(MAX_ASPECT_SIDE, Math.max(MIN_ASPECT_SIDE, Math.round(n)))
+}
+
+export function resolveArtboardPresetId(id) {
+  if (id === 'print') return 'custom'
+  return ARTBOARD_PRESETS[id] ? id : DEFAULT_ARTBOARD_PRESET
+}
+
+export function getArtboardPreset(id) {
+  return ARTBOARD_PRESETS[resolveArtboardPresetId(id)]
+}
+
+/** width / height ratio for the active artboard. */
+export function resolveArtboardAspect(presetId, customW, customH) {
+  const id = resolveArtboardPresetId(presetId)
+  if (id === 'custom') {
+    const w = clampAspectSide(customW, DEFAULT_CUSTOM_ASPECT_W)
+    const h = clampAspectSide(customH, DEFAULT_CUSTOM_ASPECT_H)
+    return w / h
+  }
+  return ARTBOARD_PRESETS[id].aspect
+}
 export function getTheme(themeId) {
   const resolved = THEME_ALIASES[themeId] ?? themeId
   return COLOR_THEMES[resolved] ?? COLOR_THEMES[DEFAULT_THEME_ID]

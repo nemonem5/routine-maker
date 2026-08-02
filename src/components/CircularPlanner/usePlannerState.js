@@ -1,20 +1,28 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  APP_MODES,
   COLOR_THEMES,
-  DEFAULT_CANVAS_SIZE,
+  DEFAULT_ARTBOARD_PRESET,
+  DEFAULT_BACKGROUND_SIZE,
+  DEFAULT_CUSTOM_ASPECT_H,
+  DEFAULT_CUSTOM_ASPECT_W,
+  DEFAULT_CUSTOM_DAY_LABEL,
   DEFAULT_PLANNER_TITLE,
   DEFAULT_STICKER_CATEGORY_ID,
   DEFAULT_STICKER_SIZE_RATIO,
   DEFAULT_THEME_ID,
   HOURS_PER_DAY,
-  MAX_CANVAS_SIZE,
+  MAX_CUSTOM_DAY_LABEL_LENGTH,
   MAX_DAYS,
   MAX_STICKER_SIZE_RATIO,
-  MIN_CANVAS_SIZE,
+  MIN_BACKGROUND_SIZE,
   MIN_STICKER_SIZE_RATIO,
   TOOLS,
   WEEKDAYS,
+  clampAspectSide,
   createEmptyStickerLibrary,
+  resolveArtboardAspect,
+  resolveArtboardPresetId,
   getTheme,
 } from '../../constants/planner'
 import {
@@ -33,6 +41,10 @@ import {
   saveProjectToLocalStorage,
   serializeProject,
 } from '../../utils/plannerStorage'
+import {
+  autoLayoutWallpaper,
+  clampPlacement,
+} from '../../utils/wallpaperLayout'
 
 function updateActiveDay(days, activeDayId, updater) {
   return days.map((day) => (day.id === activeDayId ? updater(day) : day))
@@ -40,15 +52,17 @@ function updateActiveDay(days, activeDayId, updater) {
 
 function createDefaultLiveState() {
   const days = createInitialWeek()
-  const theme = getTheme(DEFAULT_THEME_ID)
   return {
     days,
     activeDayId: days[0].id,
     title: DEFAULT_PLANNER_TITLE,
-    themeId: DEFAULT_THEME_ID,
-    selectedColor: theme.colors[0],
     customBackgroundSrc: null,
-    canvasSize: DEFAULT_CANVAS_SIZE,
+    backgroundSize: DEFAULT_BACKGROUND_SIZE,
+    appMode: APP_MODES.edit,
+    artboardPresetId: DEFAULT_ARTBOARD_PRESET,
+    customAspectW: DEFAULT_CUSTOM_ASPECT_W,
+    customAspectH: DEFAULT_CUSTOM_ASPECT_H,
+    wallpaperPlacements: [],
     stickerCategories: createEmptyStickerLibrary(),
     activeCategoryId: DEFAULT_STICKER_CATEGORY_ID,
   }
@@ -62,16 +76,25 @@ export function usePlannerState() {
   const [days, setDays] = useState(createInitialWeek)
   const [activeDayId, setActiveDayId] = useState(null)
   const [title, setTitle] = useState(DEFAULT_PLANNER_TITLE)
-  const [themeId, setThemeId] = useState(DEFAULT_THEME_ID)
-  const theme = getTheme(themeId)
   const [tool, setTool] = useState(TOOLS.paint)
-  const [selectedColor, setSelectedColor] = useState(theme.colors[0])
   const [rangeStart, setRangeStart] = useState(null)
   const [hoverHour, setHoverHour] = useState(null)
   const [edgeHover, setEdgeHover] = useState(false)
   const [uiHidden, setUiHidden] = useState(false)
   const [customBackgroundSrc, setCustomBackgroundSrc] = useState(null)
-  const [canvasSize, setCanvasSize] = useState(DEFAULT_CANVAS_SIZE)
+  const [backgroundSize, setBackgroundSize] = useState(DEFAULT_BACKGROUND_SIZE)
+  const [backgroundOpacity, setBackgroundOpacityState] = useState(1)
+  const [appMode, setAppMode] = useState(APP_MODES.edit)
+  const [artboardPresetId, setArtboardPresetId] = useState(DEFAULT_ARTBOARD_PRESET)
+  const [customAspectW, setCustomAspectW] = useState(DEFAULT_CUSTOM_ASPECT_W)
+  const [customAspectH, setCustomAspectH] = useState(DEFAULT_CUSTOM_ASPECT_H)
+  const [wallpaperPlacements, setWallpaperPlacements] = useState([])
+  const [selectedWallpaperDayId, setSelectedWallpaperDayId] = useState(null)
+  const artboardAspect = resolveArtboardAspect(
+    artboardPresetId,
+    customAspectW,
+    customAspectH,
+  )
 
   const [stickerCategories, setStickerCategories] = useState(
     createEmptyStickerLibrary,
@@ -85,6 +108,15 @@ export function usePlannerState() {
   const resolvedActiveDayId = activeDayId ?? days[0]?.id
   const activeDay =
     days.find((day) => day.id === resolvedActiveDayId) ?? days[0]
+  // Per-day, not global: each schedule keeps its own last-used palette, so
+  // switching tabs restores whatever that day was painted with instead of
+  // whichever theme happened to be active elsewhere.
+  const themeId = activeDay?.themeId ?? DEFAULT_THEME_ID
+  const theme = getTheme(themeId)
+  const selectedColor =
+    activeDay?.selectedColor && theme.colors.includes(activeDay.selectedColor)
+      ? activeDay.selectedColor
+      : theme.colors[0]
   const activeCategory =
     stickerCategories.find((category) => category.id === activeCategoryId) ??
     stickerCategories[0]
@@ -97,14 +129,31 @@ export function usePlannerState() {
     setDays(project.days)
     setActiveDayId(project.activeDayId)
     setTitle(project.title)
-    setThemeId(project.themeId)
-    setSelectedColor(project.selectedColor)
     setCustomBackgroundSrc(project.customBackgroundSrc)
-    if (typeof project.canvasSize === 'number') {
-      setCanvasSize(
-        Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, project.canvasSize)),
+    if (typeof project.backgroundSize === 'number') {
+      setBackgroundSize(
+        Math.max(MIN_BACKGROUND_SIZE, Math.round(project.backgroundSize)),
       )
     }
+    setBackgroundOpacityState(
+      typeof project.backgroundOpacity === 'number'
+        ? Math.min(1, Math.max(0, project.backgroundOpacity))
+        : 1,
+    )
+    setAppMode(project.appMode === APP_MODES.wallpaper ? APP_MODES.wallpaper : APP_MODES.edit)
+    setArtboardPresetId(resolveArtboardPresetId(project.artboardPresetId))
+    setCustomAspectW(
+      clampAspectSide(project.customAspectW, DEFAULT_CUSTOM_ASPECT_W),
+    )
+    setCustomAspectH(
+      clampAspectSide(project.customAspectH, DEFAULT_CUSTOM_ASPECT_H),
+    )
+    setWallpaperPlacements(
+      Array.isArray(project.wallpaperPlacements)
+        ? project.wallpaperPlacements
+        : [],
+    )
+    setSelectedWallpaperDayId(null)
     setStickerCategories(project.stickerCategories)
     setActiveCategoryId(project.activeCategoryId)
     setPendingStickerSrc(null)
@@ -117,10 +166,14 @@ export function usePlannerState() {
   function getProjectSnapshot() {
     return serializeProject({
       title,
-      themeId,
-      selectedColor,
       customBackgroundSrc,
-      canvasSize,
+      backgroundSize,
+      backgroundOpacity,
+      appMode,
+      artboardPresetId,
+      customAspectW,
+      customAspectH,
+      wallpaperPlacements,
       activeDayId: resolvedActiveDayId,
       activeCategoryId,
       days,
@@ -148,10 +201,14 @@ export function usePlannerState() {
     days,
     resolvedActiveDayId,
     title,
-    themeId,
-    selectedColor,
     customBackgroundSrc,
-    canvasSize,
+    backgroundSize,
+    backgroundOpacity,
+    appMode,
+    artboardPresetId,
+    customAspectW,
+    customAspectH,
+    wallpaperPlacements,
     stickerCategories,
     activeCategoryId,
   ])
@@ -188,12 +245,12 @@ export function usePlannerState() {
   }
 
   function setToolAndReset(nextTool) {
-    setTool(nextTool)
+    // Eraser tool removed — double-click a painted cell instead.
+    const resolved = nextTool === TOOLS.erase ? TOOLS.paint : nextTool
+    setTool(resolved)
     resetRange()
-    if (nextTool !== TOOLS.sticker) {
+    if (resolved !== TOOLS.sticker) {
       setPendingStickerSrc(null)
-    }
-    if (nextTool !== TOOLS.sticker && nextTool !== TOOLS.erase) {
       setSelectedStickerId(null)
     }
   }
@@ -201,21 +258,43 @@ export function usePlannerState() {
   function setCustomBackground(file) {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
-    reader.onload = () => setCustomBackgroundSrc(reader.result)
+    reader.onload = () => {
+      setCustomBackgroundSrc(reader.result)
+      setBackgroundOpacityState(1)
+    }
     reader.readAsDataURL(file)
   }
 
   function clearCustomBackground() {
     setCustomBackgroundSrc(null)
+    setBackgroundOpacityState(1)
+  }
+
+  function setBackgroundOpacity(nextOpacity) {
+    setBackgroundOpacityState(Math.min(1, Math.max(0, nextOpacity)))
   }
 
   function changeTheme(nextThemeId) {
     const next = getTheme(nextThemeId)
-    setThemeId(next.id)
-    setSelectedColor((prev) =>
-      next.colors.includes(prev) ? prev : next.colors[0],
+    setDays((prev) =>
+      updateActiveDay(prev, resolvedActiveDayId, (day) => ({
+        ...day,
+        themeId: next.id,
+        selectedColor: next.colors.includes(day.selectedColor)
+          ? day.selectedColor
+          : next.colors[0],
+      })),
     )
     resetRange()
+  }
+
+  function setSelectedColor(color) {
+    setDays((prev) =>
+      updateActiveDay(prev, resolvedActiveDayId, (day) => ({
+        ...day,
+        selectedColor: color,
+      })),
+    )
   }
 
   function selectDay(dayId) {
@@ -225,13 +304,48 @@ export function usePlannerState() {
     setPendingStickerSrc(null)
   }
 
+  /**
+   * Adds the next open weekday, or a blank custom-named day once every
+   * weekday is already in use — one button covers both cases.
+   */
   function addDay(weekdayId = availableWeekdays[0]?.id) {
-    if (days.length >= MAX_DAYS || !weekdayId) return
+    if (days.length >= MAX_DAYS) return
+    if (!weekdayId) {
+      addCustomDay('')
+      return
+    }
     if (usedWeekdays.has(weekdayId)) return
 
-    const next = createEmptyDay(weekdayId)
+    // New tabs start with whatever palette you were just using, so you
+    // don't have to re-pick a theme every time you add a day.
+    const next = createEmptyDay(weekdayId, '', themeId, selectedColor)
     setDays((prev) => [...prev, next])
     selectDay(next.id)
+  }
+
+  /** Add a day tab that isn't tied to a weekday — user picks its name. */
+  function addCustomDay(label = '') {
+    if (days.length >= MAX_DAYS) return
+
+    const trimmed = label.trim().slice(0, MAX_CUSTOM_DAY_LABEL_LENGTH)
+    const next = createEmptyDay(
+      null,
+      trimmed || DEFAULT_CUSTOM_DAY_LABEL,
+      themeId,
+      selectedColor,
+    )
+    setDays((prev) => [...prev, next])
+    selectDay(next.id)
+  }
+
+  function renameDay(dayId, label) {
+    const trimmed =
+      typeof label === 'string'
+        ? label.slice(0, MAX_CUSTOM_DAY_LABEL_LENGTH)
+        : ''
+    setDays((prev) =>
+      prev.map((day) => (day.id === dayId ? { ...day, label: trimmed } : day)),
+    )
   }
 
   function removeDay(dayId) {
@@ -244,20 +358,39 @@ export function usePlannerState() {
       }
       return next
     })
+    setWallpaperPlacements((prev) => prev.filter((item) => item.dayId !== dayId))
+    if (selectedWallpaperDayId === dayId) setSelectedWallpaperDayId(null)
     resetRange()
     setSelectedStickerId(null)
     setPendingStickerSrc(null)
   }
 
   function setDayWeekday(dayId, weekdayId) {
-    if (usedWeekdays.has(weekdayId) && activeDay?.weekdayId !== weekdayId) {
+    const current = days.find((day) => day.id === dayId)
+    if (!current) return
+
+    // Switching to "custom" — free the weekday and keep/seed a label.
+    if (weekdayId == null) {
+      setDays((prev) =>
+        prev.map((day) =>
+          day.id === dayId
+            ? {
+                ...day,
+                weekdayId: null,
+                label: day.label?.trim() ? day.label : DEFAULT_CUSTOM_DAY_LABEL,
+              }
+            : day,
+        ),
+      )
+      return
+    }
+
+    if (usedWeekdays.has(weekdayId) && current.weekdayId !== weekdayId) {
       return
     }
 
     setDays((prev) =>
-      prev.map((day) =>
-        day.id === dayId ? { ...day, weekdayId } : day,
-      ),
+      prev.map((day) => (day.id === dayId ? { ...day, weekdayId } : day)),
     )
   }
 
@@ -405,9 +538,99 @@ export function usePlannerState() {
     )
   }
 
-  function resizeCanvas(nextSize) {
-    setCanvasSize(
-      Math.min(MAX_CANVAS_SIZE, Math.max(MIN_CANVAS_SIZE, Math.round(nextSize))),
+  function resizeBackground(nextSize) {
+    setBackgroundSize(Math.max(MIN_BACKGROUND_SIZE, Math.round(nextSize)))
+  }
+
+  function setMode(nextMode) {
+    setAppMode(nextMode)
+    resetRange()
+    setPendingStickerSrc(null)
+    setSelectedStickerId(null)
+    setSelectedWallpaperDayId(null)
+    if (
+      nextMode === APP_MODES.wallpaper &&
+      wallpaperPlacements.length === 0 &&
+      days[0]
+    ) {
+      setWallpaperPlacements(autoLayoutWallpaper([days[0].id], artboardAspect))
+    }
+  }
+
+  function setArtboardPreset(presetId) {
+    const nextId = resolveArtboardPresetId(presetId)
+    setArtboardPresetId(nextId)
+    const nextAspect = resolveArtboardAspect(
+      nextId,
+      customAspectW,
+      customAspectH,
+    )
+    setWallpaperPlacements((prev) => {
+      const ids = prev.map((item) => item.dayId)
+      if (ids.length === 0) return prev
+      return autoLayoutWallpaper(ids, nextAspect)
+    })
+  }
+
+  function setCustomAspect(nextW, nextH) {
+    const w = clampAspectSide(nextW, customAspectW)
+    const h = clampAspectSide(nextH, customAspectH)
+    setCustomAspectW(w)
+    setCustomAspectH(h)
+    setArtboardPresetId('custom')
+    const nextAspect = resolveArtboardAspect('custom', w, h)
+    setWallpaperPlacements((prev) => {
+      const ids = prev.map((item) => item.dayId)
+      if (ids.length === 0) return prev
+      return autoLayoutWallpaper(ids, nextAspect)
+    })
+  }
+
+  function toggleWallpaperDay(dayId) {
+    setWallpaperPlacements((prev) => {
+      const exists = prev.some((item) => item.dayId === dayId)
+      if (exists) {
+        return prev.filter((item) => item.dayId !== dayId)
+      }
+      const nextIds = [...prev.map((item) => item.dayId), dayId]
+      return autoLayoutWallpaper(nextIds, artboardAspect)
+    })
+    setSelectedWallpaperDayId(dayId)
+  }
+
+  function autoArrangeWallpaper() {
+    setWallpaperPlacements((prev) => {
+      const ids = prev.map((item) => item.dayId)
+      if (ids.length === 0 && days[0]) {
+        return autoLayoutWallpaper([days[0].id], artboardAspect)
+      }
+      return autoLayoutWallpaper(ids, artboardAspect)
+    })
+  }
+
+  function moveWallpaperPlacement(dayId, nx, ny, boardAspect = artboardAspect) {
+    setWallpaperPlacements((prev) =>
+      prev.map((item) => {
+        if (item.dayId !== dayId) return item
+        return clampPlacement({ ...item, nx, ny }, boardAspect)
+      }),
+    )
+  }
+
+  function bringWallpaperToFront(dayId) {
+    setWallpaperPlacements((prev) => {
+      const target = prev.find((item) => item.dayId === dayId)
+      if (!target) return prev
+      return [...prev.filter((item) => item.dayId !== dayId), target]
+    })
+  }
+
+  function resizeWallpaperPlacement(dayId, sizeRatio, boardAspect = artboardAspect) {
+    setWallpaperPlacements((prev) =>
+      prev.map((item) => {
+        if (item.dayId !== dayId) return item
+        return clampPlacement({ ...item, sizeRatio }, boardAspect)
+      }),
     )
   }
 
@@ -423,13 +646,7 @@ export function usePlannerState() {
 
   function handleHourClick(hour) {
     if (tool === TOOLS.sticker) return
-
     if (hour == null) return
-
-    if (tool === TOOLS.erase) {
-      removeBlockAtHour(hour)
-      return
-    }
 
     if (tool === TOOLS.paint) {
       setDays((prev) =>
@@ -439,6 +656,13 @@ export function usePlannerState() {
         })),
       )
     }
+  }
+
+  /** Double-click a painted hour in paint mode to clear it. */
+  function handleHourDoubleClick(hour) {
+    if (tool !== TOOLS.paint) return
+    if (hour == null) return
+    removeBlockAtHour(hour)
   }
 
   function handleHourHover(hour) {
@@ -460,6 +684,8 @@ export function usePlannerState() {
     activeDayId: resolvedActiveDayId,
     selectDay,
     addDay,
+    addCustomDay,
+    renameDay,
     removeDay,
     setDayWeekday,
     availableWeekdays,
@@ -478,6 +704,7 @@ export function usePlannerState() {
     rangeStart,
     previewRange,
     handleHourClick,
+    handleHourDoubleClick,
     handleHourHover,
     handleResizeBlockEdge,
     edgeHover,
@@ -488,8 +715,26 @@ export function usePlannerState() {
     customBackgroundSrc,
     setCustomBackground,
     clearCustomBackground,
-    canvasSize,
-    resizeCanvas,
+    backgroundOpacity,
+    setBackgroundOpacity,
+    backgroundSize,
+    resizeBackground,
+    appMode,
+    setMode,
+    artboardPresetId,
+    artboardAspect,
+    customAspectW,
+    customAspectH,
+    setArtboardPreset,
+    setCustomAspect,
+    wallpaperPlacements,
+    selectedWallpaperDayId,
+    setSelectedWallpaperDayId,
+    toggleWallpaperDay,
+    autoArrangeWallpaper,
+    moveWallpaperPlacement,
+    bringWallpaperToFront,
+    resizeWallpaperPlacement,
     stickerCategories,
     activeCategoryId,
     setActiveCategoryId,

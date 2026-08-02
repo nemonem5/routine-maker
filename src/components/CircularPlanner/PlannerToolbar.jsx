@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { TOOLS } from '../../constants/planner'
+import { APP_MODES, ARTBOARD_PRESETS, TOOLS } from '../../constants/planner'
 import DayTabs from './DayTabs'
 import { STICKER_DRAG_MIME } from './PlannerCanvas'
 
@@ -15,28 +15,7 @@ function IconPaint() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M14.7 4.3 19.7 9.3" />
-      <path d="m4 20 5.2-1.1L19.4 8.7a2.1 2.1 0 0 0-3-3L6.1 16.1 4 20Z" />
-      <path d="M12.8 6.8 17.2 11.2" />
-    </svg>
-  )
-}
-
-function IconErase() {
-  return (
-    <svg
-      className="planner-toolbar__icon"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="m7 17-3-3 8.5-8.5a2.1 2.1 0 0 1 3 0L19 9a2.1 2.1 0 0 1 0 3l-7 7H7Z" />
-      <path d="M5 20h14" />
-      <path d="m9.5 9.5 5 5" />
+      <path d="M12 3.2c2.6 3.3 5.6 7.2 5.6 10.4a5.6 5.6 0 1 1-11.2 0c0-3.2 3-7.1 5.6-10.4Z" />
     </svg>
   )
 }
@@ -92,22 +71,6 @@ function IconPlus() {
   )
 }
 
-function IconMinus() {
-  return (
-    <svg
-      className="planner-toolbar__icon"
-      viewBox="0 0 24 24"
-      aria-hidden="true"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-    >
-      <path d="M6 12h12" />
-    </svg>
-  )
-}
-
 function IconTrash() {
   return (
     <svg
@@ -123,6 +86,27 @@ function IconTrash() {
       <path d="M5 8h14" />
       <path d="M9 8V6h6v2" />
       <path d="M7 8v11h10V8" />
+    </svg>
+  )
+}
+
+function IconOpacity() {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path
+        d="M12 3c3.5 4 6 7.2 6 10a6 6 0 1 1-12 0c0-2.8 2.5-6 6-10Z"
+        fillOpacity="0.35"
+        fill="currentColor"
+      />
     </svg>
   )
 }
@@ -154,9 +138,10 @@ function IconImage() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <rect x="4" y="5" width="16" height="14" rx="2" />
-      <circle cx="9" cy="10" r="1.5" />
-      <path d="m8 16 3-3 2 2 3-4 3 5" />
+      <path d="M4 7.5h12.5A1.5 1.5 0 0 1 18 9v9.5A1.5 1.5 0 0 1 16.5 20H4.5A1.5 1.5 0 0 1 3 18.5v-9A2 2 0 0 1 5 7.5Z" />
+      <path d="M7 7.5V5.5A1.5 1.5 0 0 1 8.5 4H20a1 1 0 0 1 1 1v11.5A1.5 1.5 0 0 1 19.5 18H18" />
+      <circle cx="8.2" cy="12" r="1.2" />
+      <path d="m6.5 17.5 2.6-2.4 1.7 1.5 2.4-2.8 2.8 3.7" />
     </svg>
   )
 }
@@ -192,9 +177,105 @@ function IconLoad() {
       strokeLinecap="round"
       strokeLinejoin="round"
     >
-      <path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
-      <path d="M12 4v12" />
-      <path d="m7 9 5 5 5-5" />
+      <path d="M3 9.5V18a1.5 1.5 0 0 0 1.5 1.5h15A1.5 1.5 0 0 0 21 18V11a1.5 1.5 0 0 0-1.5-1.5H12l-2-2.2H4.5A1.5 1.5 0 0 0 3 9.5Z" />
+      <path d="M3 14.5h18" />
+    </svg>
+  )
+}
+
+/**
+ * Shape hints for the artboard-preset buttons, replacing the Korean text
+ * labels (세로/와이드/정사각/지정) with a plain visual read of what each
+ * preset actually does: a tall rect, a wide rect, a square, or a "+" for
+ * "type your own numbers".
+ */
+function IconAspectShape({ presetId }) {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      {presetId === 'phone' && <rect x="8" y="3" width="8" height="18" rx="1.5" />}
+      {presetId === 'desktop' && <rect x="3" y="8" width="18" height="8" rx="1.5" />}
+      {presetId === 'square' && <rect x="5" y="5" width="14" height="14" rx="1.5" />}
+      {presetId === 'custom' && (
+        <>
+          <path d="M12 6v12" />
+          <path d="M6 12h12" />
+        </>
+      )}
+    </svg>
+  )
+}
+
+function IconTransparentBg() {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+    >
+      <rect
+        x="3"
+        y="3"
+        width="18"
+        height="18"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.6"
+      />
+      <path
+        d="M3 12h9M12 3v9M12 12h9M12 12v9"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        opacity="0.55"
+      />
+    </svg>
+  )
+}
+
+function IconAutoLayout() {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <rect x="4" y="4" width="7" height="7" rx="1.5" />
+      <rect x="13" y="4" width="7" height="7" rx="1.5" />
+      <rect x="4" y="13" width="7" height="7" rx="1.5" />
+      <rect x="13" y="13" width="7" height="7" rx="1.5" />
+    </svg>
+  )
+}
+
+function IconExportPng() {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M12 4v10" />
+      <path d="m8.5 10.5 3.5 3.5 3.5-3.5" />
+      <path d="M5 16.5V18a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-1.5" />
     </svg>
   )
 }
@@ -212,14 +293,18 @@ export default function PlannerToolbar({
   onCancelRange,
   days,
   activeDayId,
-  availableWeekdays,
   onSelectDay,
   onAddDay,
   onRemoveDay,
   onChangeWeekday,
+  onRenameDay,
   customBackgroundSrc,
+  bgEditMode,
+  onEnterBgEdit,
   onSetCustomBackground,
-  onClearCustomBackground,
+  backgroundOpacity = 1,
+  onBackgroundOpacityChange,
+  onClearBackground,
   onSaveProject,
   onLoadProjectFile,
   stickerCategories,
@@ -235,6 +320,18 @@ export default function PlannerToolbar({
   onRemoveLibraryItem,
   selectedStickerId,
   onDeleteSelected,
+  appMode,
+  wallpaperDayIds = [],
+  onToggleWallpaperDay,
+  onAutoArrangeWallpaper,
+  artboardPresetId,
+  onArtboardPresetChange,
+  customAspectW,
+  customAspectH,
+  onCustomAspectChange,
+  onExportWallpaperPng,
+  transparentExport = false,
+  onToggleTransparentExport,
 }) {
   const fileRef = useRef(null)
   const bgRef = useRef(null)
@@ -248,28 +345,146 @@ export default function PlannerToolbar({
     setCategoryDraft(activeCategory?.name ?? '')
   }, [activeCategory?.id, activeCategory?.name])
 
-  return (
-    <aside className="planner-toolbar">
-      <DayTabs
-        days={days}
-        activeDayId={activeDayId}
-        availableWeekdays={availableWeekdays}
-        onSelectDay={onSelectDay}
-        onAddDay={onAddDay}
-        onRemoveDay={onRemoveDay}
-        onChangeWeekday={onChangeWeekday}
-      />
+  const isWallpaper = appMode === APP_MODES.wallpaper
 
+  return (
+    <div className="planner-toolbar-wrap">
+    <aside className="planner-toolbar">
+      {/* 1) Day create / select / delete */}
+      <div className="planner-toolbar__section">
+        <DayTabs
+          days={days}
+          activeDayId={activeDayId}
+          onSelectDay={onSelectDay}
+          onAddDay={onAddDay}
+          onRemoveDay={onRemoveDay}
+          onChangeWeekday={onChangeWeekday}
+          onRenameDay={onRenameDay}
+          multiSelect={isWallpaper}
+          selectedDayIds={wallpaperDayIds}
+          onToggleDay={onToggleWallpaperDay}
+        />
+      </div>
+
+      {isWallpaper ? (
+        <>
+        {/* 2) Aspect ratio */}
+        <div className="planner-toolbar__section planner-toolbar__section--divided">
+          <div className="planner-toolbar__presets" role="group" aria-label="화면 비율">
+            {Object.values(ARTBOARD_PRESETS).map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className={
+                  artboardPresetId === preset.id
+                    ? 'planner-toolbar__preset is-active'
+                    : 'planner-toolbar__preset'
+                }
+                aria-label={preset.label}
+                title={preset.label}
+                onClick={() => onArtboardPresetChange?.(preset.id)}
+              >
+                <IconAspectShape presetId={preset.id} />
+              </button>
+            ))}
+          </div>
+          {artboardPresetId === 'custom' && (
+            <div
+              className="planner-toolbar__aspect-inputs"
+              role="group"
+              aria-label="사용자 지정 비율"
+            >
+              <input
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                value={customAspectW}
+                aria-label="가로 비율"
+                title="가로"
+                onChange={(event) =>
+                  onCustomAspectChange?.(
+                    Number(event.target.value),
+                    customAspectH,
+                  )
+                }
+              />
+              <span aria-hidden="true">:</span>
+              <input
+                type="number"
+                min={1}
+                max={99}
+                step={1}
+                value={customAspectH}
+                aria-label="세로 비율"
+                title="세로"
+                onChange={(event) =>
+                  onCustomAspectChange?.(
+                    customAspectW,
+                    Number(event.target.value),
+                  )
+                }
+              />
+            </div>
+          )}
+        </div>
+
+        {/* 3) Arrange + high-res download only (save/load live in edit mode) */}
+        <div
+          className="planner-toolbar__section planner-toolbar__section--divided"
+          role="group"
+          aria-label="내보내기"
+        >
+          <div className="planner-toolbar__customize">
+            <button
+              type="button"
+              className="planner-toolbar__btn"
+              aria-label="자동 배열"
+              title="자동 배열"
+              onClick={() => onAutoArrangeWallpaper?.()}
+            >
+              <IconAutoLayout />
+            </button>
+            <button
+              type="button"
+              className={
+                transparentExport
+                  ? 'planner-toolbar__btn is-active'
+                  : 'planner-toolbar__btn'
+              }
+              aria-label="투명 배경으로 내보내기"
+              aria-pressed={transparentExport}
+              title="투명 배경으로 내보내기"
+              onClick={() => onToggleTransparentExport?.()}
+            >
+              <IconTransparentBg />
+            </button>
+            <button
+              type="button"
+              className="planner-toolbar__btn"
+              aria-label="고화질 PNG 저장"
+              title="고화질 PNG 저장"
+              onClick={() => onExportWallpaperPng?.()}
+            >
+              <IconExportPng />
+            </button>
+          </div>
+        </div>
+        </>
+      ) : (
+        <>
+      {/* 2) Edit tools + contextual panels */}
+      <div className="planner-toolbar__section planner-toolbar__section--divided">
       <div className="planner-toolbar__tools" role="group" aria-label="도구">
         <button
           type="button"
           className={
-            tool === TOOLS.paint
+            tool === TOOLS.paint && !bgEditMode
               ? 'planner-toolbar__btn is-active'
               : 'planner-toolbar__btn'
           }
           aria-label="색칠"
-          title="색칠"
+          title="색칠 (더블클릭으로 지우기)"
           onClick={() => onToolChange(TOOLS.paint)}
         >
           <IconPaint />
@@ -277,7 +492,7 @@ export default function PlannerToolbar({
         <button
           type="button"
           className={
-            tool === TOOLS.sticker
+            tool === TOOLS.sticker && !bgEditMode
               ? 'planner-toolbar__btn is-active'
               : 'planner-toolbar__btn'
           }
@@ -286,68 +501,6 @@ export default function PlannerToolbar({
           onClick={() => onToolChange(TOOLS.sticker)}
         >
           <IconSticker />
-        </button>
-        <button
-          type="button"
-          className={
-            tool === TOOLS.erase
-              ? 'planner-toolbar__btn is-active'
-              : 'planner-toolbar__btn'
-          }
-          aria-label="지우기"
-          title="지우기"
-          onClick={() => onToolChange(TOOLS.erase)}
-        >
-          <IconErase />
-        </button>
-        {rangeStart != null && (
-          <button
-            type="button"
-            className="planner-toolbar__btn planner-toolbar__btn--ghost"
-            aria-label="선택 취소"
-            title="선택 취소"
-            onClick={onCancelRange}
-          >
-            <IconClose />
-          </button>
-        )}
-      </div>
-
-      <div className="planner-toolbar__customize" role="group" aria-label="파일">
-        <button
-          type="button"
-          className="planner-toolbar__btn"
-          aria-label="저장"
-          title="저장"
-          onClick={onSaveProject}
-        >
-          <IconSave />
-        </button>
-        <input
-          ref={loadRef}
-          className="visually-hidden"
-          type="file"
-          accept="application/json,.json"
-          onChange={async (event) => {
-            const file = event.target.files?.[0]
-            if (file) {
-              try {
-                await onLoadProjectFile?.(file)
-              } catch {
-                // ignore invalid files for now
-              }
-            }
-            event.target.value = ''
-          }}
-        />
-        <button
-          type="button"
-          className="planner-toolbar__btn"
-          aria-label="불러오기"
-          title="불러오기"
-          onClick={() => loadRef.current?.click()}
-        >
-          <IconLoad />
         </button>
         <input
           ref={bgRef}
@@ -363,30 +516,37 @@ export default function PlannerToolbar({
         <button
           type="button"
           className={
-            customBackgroundSrc
+            bgEditMode
               ? 'planner-toolbar__btn is-active'
               : 'planner-toolbar__btn'
           }
-          aria-label="배경 이미지"
-          title="배경 이미지"
-          onClick={() => bgRef.current?.click()}
+          aria-label="배경 편집"
+          title="배경 편집"
+          onClick={() => {
+            if (bgEditMode) {
+              bgRef.current?.click()
+              return
+            }
+            onEnterBgEdit?.()
+            if (!customBackgroundSrc) bgRef.current?.click()
+          }}
         >
           <IconImage />
         </button>
-        {customBackgroundSrc && (
+        {rangeStart != null && (
           <button
             type="button"
             className="planner-toolbar__btn planner-toolbar__btn--ghost"
-            aria-label="배경 초기화"
-            title="배경 초기화"
-            onClick={onClearCustomBackground}
+            aria-label="선택 취소"
+            title="선택 취소"
+            onClick={onCancelRange}
           >
             <IconClose />
           </button>
         )}
       </div>
 
-      {tool === TOOLS.paint && (
+      {tool === TOOLS.paint && !bgEditMode && (
         <div className="planner-toolbar__panel">
           <div
             className="planner-toolbar__themes"
@@ -437,7 +597,7 @@ export default function PlannerToolbar({
         </div>
       )}
 
-      {tool === TOOLS.sticker && (
+      {tool === TOOLS.sticker && !bgEditMode && (
         <div className="planner-toolbar__panel planner-toolbar__stickers">
           <div className="sticker-categories" role="tablist" aria-label="스티커 카테고리">
             {stickerCategories.map((category, index) => (
@@ -584,6 +744,88 @@ export default function PlannerToolbar({
           )}
         </div>
       )}
+
+      {bgEditMode && (
+        <div className="planner-toolbar__panel">
+          <div className="planner-toolbar__bg-row">
+            <label className="planner-toolbar__opacity" title="배경 투명도">
+              <IconOpacity />
+              <input
+                type="range"
+                min={0}
+                max={100}
+                step={1}
+                value={Math.round(backgroundOpacity * 100)}
+                aria-label="배경 투명도"
+                disabled={!customBackgroundSrc}
+                onChange={(event) =>
+                  onBackgroundOpacityChange?.(Number(event.target.value) / 100)
+                }
+              />
+            </label>
+            <button
+              type="button"
+              className="planner-toolbar__btn planner-toolbar__btn--ghost"
+              aria-label="배경 삭제"
+              title="배경 삭제"
+              disabled={!customBackgroundSrc}
+              onClick={onClearBackground}
+            >
+              <IconClose />
+            </button>
+          </div>
+          {!customBackgroundSrc && (
+            <p className="planner-toolbar__hint">이미지를 선택해 배경으로 사용하세요.</p>
+          )}
+        </div>
+      )}
+      </div>
+
+      {/* 3) Save / load — always at the bottom of edit mode */}
+      <div
+        className="planner-toolbar__section planner-toolbar__section--divided planner-toolbar__file"
+        role="group"
+        aria-label="저장"
+      >
+        <button
+          type="button"
+          className="planner-toolbar__btn"
+          aria-label="저장"
+          title="프로젝트 저장"
+          onClick={onSaveProject}
+        >
+          <IconSave />
+        </button>
+        <input
+          ref={loadRef}
+          className="visually-hidden"
+          type="file"
+          accept="application/json,.json"
+          onChange={async (event) => {
+            const file = event.target.files?.[0]
+            if (file) {
+              try {
+                await onLoadProjectFile?.(file)
+              } catch {
+                // ignore invalid files for now
+              }
+            }
+            event.target.value = ''
+          }}
+        />
+        <button
+          type="button"
+          className="planner-toolbar__btn"
+          aria-label="불러오기"
+          title="불러오기"
+          onClick={() => loadRef.current?.click()}
+        >
+          <IconLoad />
+        </button>
+      </div>
+        </>
+      )}
     </aside>
+    </div>
   )
 }

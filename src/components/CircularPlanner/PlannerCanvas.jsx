@@ -16,7 +16,7 @@ export const STICKER_DRAG_MIME = 'application/x-routine-maker-sticker'
 
 /**
  * HTML5 Canvas surface for the circular planner.
- * Paint: click hour to fill; drag a block edge to invade neighboring time.
+ * Paint: click hour to fill; double-click to clear; drag a block edge to resize.
  */
 export default function PlannerCanvas({
   size,
@@ -36,6 +36,7 @@ export default function PlannerCanvas({
   backgroundImage = null,
   backgroundVersion = 0,
   onHourClick,
+  onHourDoubleClick,
   onHourHover,
   onEdgeHover,
   onResizeBlockEdge,
@@ -43,11 +44,11 @@ export default function PlannerCanvas({
   onSelectSticker,
   onMoveSticker,
   onResizeSticker,
-  onRemoveSticker,
 }) {
   const canvasRef = useRef(null)
   const dragRef = useRef(null)
   const pendingPaintRef = useRef(null)
+  const paintTimerRef = useRef(null)
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -61,6 +62,11 @@ export default function PlannerCanvas({
 
     const ctx = canvas.getContext('2d')
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    // Canvas defaults to imageSmoothingQuality "low", which visibly softens
+    // sticker PNGs whenever they're drawn scaled down from their source
+    // resolution — bump it up so stickers stay crisp.
+    ctx.imageSmoothingEnabled = true
+    ctx.imageSmoothingQuality = 'high'
 
     drawPlanner(ctx, size, {
       blocks,
@@ -93,9 +99,15 @@ export default function PlannerCanvas({
   function pointerPos(event) {
     const canvas = canvasRef.current
     const rect = canvas.getBoundingClientRect()
+    // The canvas's rendered box can be smaller/larger than its logical
+    // `size` (e.g. the stage is CSS-scaled to fit the viewport), so map
+    // client coordinates back into the same coordinate space that
+    // getPlannerLayout(size) and every hit-test function expect.
+    const scaleX = rect.width / size || 1
+    const scaleY = rect.height / size || 1
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: (event.clientX - rect.left) / scaleX,
+      y: (event.clientY - rect.top) / scaleY,
     }
   }
 
@@ -154,35 +166,25 @@ export default function PlannerCanvas({
       return
     }
 
-    if (tool === TOOLS.erase && hit) {
-      onRemoveSticker?.(hit.id)
-      return
-    }
-
-    if (tool === TOOLS.paint || tool === TOOLS.erase) {
+    if (tool === TOOLS.paint) {
       onSelectSticker?.(null)
 
-      if (tool === TOOLS.paint) {
-        const edge = hitTestBlockEdge(x, y, blocks, layout)
-        if (edge) {
-          dragRef.current = {
-            kind: 'edge',
-            blockId: edge.blockId,
-            edge: edge.edge,
-          }
-          canvasRef.current?.setPointerCapture?.(event.pointerId)
-          return
+      const edge = hitTestBlockEdge(x, y, blocks, layout)
+      if (edge) {
+        dragRef.current = {
+          kind: 'edge',
+          blockId: edge.blockId,
+          edge: edge.edge,
         }
-
-        const hour = hitTestHour(x, y, layout)
-        if (hour != null) {
-          pendingPaintRef.current = { hour, x, y }
-          canvasRef.current?.setPointerCapture?.(event.pointerId)
-        }
+        canvasRef.current?.setPointerCapture?.(event.pointerId)
         return
       }
 
-      onHourClick?.(hitTestHour(x, y, layout))
+      const hour = hitTestHour(x, y, layout)
+      if (hour != null) {
+        pendingPaintRef.current = { hour, x, y }
+        canvasRef.current?.setPointerCapture?.(event.pointerId)
+      }
     }
   }
 
@@ -271,7 +273,13 @@ export default function PlannerCanvas({
     pendingPaintRef.current = null
 
     if (pending && !dragRef.current) {
-      onHourClick?.(pending.hour)
+      // Delay paint so a double-click can cancel it and clear instead.
+      if (paintTimerRef.current) clearTimeout(paintTimerRef.current)
+      const hour = pending.hour
+      paintTimerRef.current = setTimeout(() => {
+        paintTimerRef.current = null
+        onHourClick?.(hour)
+      }, 220)
     }
 
     if (!dragRef.current) return
@@ -282,6 +290,24 @@ export default function PlannerCanvas({
       // ignore
     }
   }
+
+  function handleDoubleClick(event) {
+    if (!interactive || tool !== TOOLS.paint) return
+    if (paintTimerRef.current) {
+      clearTimeout(paintTimerRef.current)
+      paintTimerRef.current = null
+    }
+    const { x, y } = pointerPos(event)
+    const hour = hitTestHour(x, y, getPlannerLayout(size))
+    onHourDoubleClick?.(hour)
+  }
+
+  useEffect(
+    () => () => {
+      if (paintTimerRef.current) clearTimeout(paintTimerRef.current)
+    },
+    [],
+  )
 
   function handlePointerLeave() {
     if (!dragRef.current && !pendingPaintRef.current) {
@@ -326,6 +352,7 @@ export default function PlannerCanvas({
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
       onPointerLeave={handlePointerLeave}
+      onDoubleClick={handleDoubleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     />

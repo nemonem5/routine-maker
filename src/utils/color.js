@@ -38,7 +38,7 @@ export function rgbToHsl(r, g, b) {
 
   const d = max - min
   const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
-  let h = 0
+  let h
   if (max === rr) h = ((gg - bb) / d + (gg < bb ? 6 : 0)) / 6
   else if (max === gg) h = ((bb - rr) / d + 2) / 6
   else h = ((rr - gg) / d + 4) / 6
@@ -85,6 +85,75 @@ export function subtleDividerColor(hex, { satDelta = 6, lightDelta = -5 } = {}) 
   const nextL = Math.max(0, Math.min(100, l + lightDelta))
   const rgb = hslToRgb(h, nextS, nextL)
   return rgbToHex(rgb.r, rgb.g, rgb.b)
+}
+
+/** WCAG relative luminance — what the eye actually reads as "brightness". */
+export function relativeLuminance(hex) {
+  const { r, g, b } = parseHex(hex)
+  const channel = (v) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  return (
+    0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b)
+  )
+}
+
+export function contrastRatio(aHex, bHex) {
+  const a = relativeLuminance(aHex)
+  const b = relativeLuminance(bHex)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
+const toHex = (h, s, l) => {
+  const rgb = hslToRgb(h, Math.max(0, Math.min(100, s)), Math.max(0, Math.min(100, l)))
+  return rgbToHex(rgb.r, rgb.g, rgb.b)
+}
+
+/**
+ * Divider stroke for a boundary between two painted colors.
+ *
+ * HSL lightness is NOT perceived brightness: nudging lightness down while
+ * raising saturation can leave the stroke at the same apparent brightness as
+ * the fill it sits on, so the line vanishes. This walks lightness away from
+ * the two fills until the stroke clears `minContrast` against BOTH of them,
+ * measured as a real luminance contrast ratio. It steps darker first (subtle,
+ * ink-like) and only goes lighter when the fills are already near black.
+ */
+export function dividerColorForBoundary(
+  leftHex,
+  rightHex,
+  { satDelta = 8, minContrast = 1.75 } = {},
+) {
+  const left = parseHex(leftHex)
+  const right = parseHex(rightHex)
+  const leftHsl = rgbToHsl(left.r, left.g, left.b)
+  const rightHsl = rgbToHsl(right.r, right.g, right.b)
+
+  const leftIsDarker = relativeLuminance(leftHex) <= relativeLuminance(rightHex)
+  const darker = leftIsDarker ? leftHsl : rightHsl
+  const lighter = leftIsDarker ? rightHsl : leftHsl
+
+  const score = (hex) =>
+    Math.min(contrastRatio(hex, leftHex), contrastRatio(hex, rightHex))
+
+  let best = null
+  const consider = (hex) => {
+    const value = score(hex)
+    if (!best || value > best.value) best = { hex, value }
+    return value >= minContrast
+  }
+
+  for (let l = Math.round(darker.l); l >= 0; l -= 2) {
+    const candidate = toHex(darker.h, darker.s + satDelta, l)
+    if (consider(candidate)) return candidate
+  }
+  for (let l = Math.round(lighter.l); l <= 100; l += 2) {
+    const candidate = toHex(lighter.h, lighter.s - satDelta, l)
+    if (consider(candidate)) return candidate
+  }
+
+  return best.hex
 }
 
 /**

@@ -1,11 +1,18 @@
 import {
+  APP_MODES,
+  DEFAULT_CUSTOM_ASPECT_H,
+  DEFAULT_CUSTOM_ASPECT_W,
+  DEFAULT_CUSTOM_DAY_LABEL,
   DEFAULT_PLANNER_TITLE,
   DEFAULT_STICKER_CATEGORY_ID,
   DEFAULT_THEME_ID,
+  MAX_CUSTOM_DAY_LABEL_LENGTH,
   MAX_DAYS,
   WEEKDAYS,
+  clampAspectSide,
   createEmptyStickerLibrary,
   getTheme,
+  resolveArtboardPresetId,
 } from '../constants/planner'
 import { createEmptyDay, createInitialWeek } from './canvasGeometry'
 
@@ -21,11 +28,28 @@ export function serializeProject(state) {
     version: PLANNER_FILE_VERSION,
     savedAt: new Date().toISOString(),
     title: state.title ?? DEFAULT_PLANNER_TITLE,
-    themeId: state.themeId ?? DEFAULT_THEME_ID,
-    selectedColor: state.selectedColor ?? null,
     customBackgroundSrc: state.customBackgroundSrc ?? null,
-    canvasSize:
-      typeof state.canvasSize === 'number' ? state.canvasSize : null,
+    backgroundSize:
+      typeof state.backgroundSize === 'number'
+        ? state.backgroundSize
+        : typeof state.canvasSize === 'number'
+          ? state.canvasSize
+          : null,
+    backgroundOpacity:
+      typeof state.backgroundOpacity === 'number' ? state.backgroundOpacity : 1,
+    appMode: state.appMode ?? APP_MODES.edit,
+    artboardPresetId: resolveArtboardPresetId(state.artboardPresetId),
+    customAspectW: clampAspectSide(
+      state.customAspectW,
+      DEFAULT_CUSTOM_ASPECT_W,
+    ),
+    customAspectH: clampAspectSide(
+      state.customAspectH,
+      DEFAULT_CUSTOM_ASPECT_H,
+    ),
+    wallpaperPlacements: Array.isArray(state.wallpaperPlacements)
+      ? state.wallpaperPlacements
+      : [],
     activeDayId: state.activeDayId ?? null,
     activeCategoryId: state.activeCategoryId ?? DEFAULT_STICKER_CATEGORY_ID,
     days: Array.isArray(state.days) ? state.days : createInitialWeek(),
@@ -35,15 +59,64 @@ export function serializeProject(state) {
   }
 }
 
-function sanitizeDay(raw, fallbackWeekdayId = 'mon') {
+function sanitizeWallpaperPlacements(raw, days) {
+  const dayIds = new Set(days.map((day) => day.id))
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter(
+      (item) =>
+        item &&
+        typeof item.dayId === 'string' &&
+        dayIds.has(item.dayId) &&
+        typeof item.nx === 'number' &&
+        typeof item.ny === 'number' &&
+        typeof item.sizeRatio === 'number',
+    )
+    .map((item) => ({
+      dayId: item.dayId,
+      nx: item.nx,
+      ny: item.ny,
+      sizeRatio: item.sizeRatio,
+    }))
+}
+
+function sanitizeDay(
+  raw,
+  fallbackWeekdayId = 'mon',
+  // Legacy saves (pre-per-day palettes) kept theme/color at the project's
+  // top level — fall back to those so old files still restore correctly.
+  legacyThemeId = DEFAULT_THEME_ID,
+  legacySelectedColor = null,
+) {
   const weekdayIds = new Set(WEEKDAYS.map((day) => day.id))
-  const weekdayId = weekdayIds.has(raw?.weekdayId)
-    ? raw.weekdayId
-    : fallbackWeekdayId
+  // `weekdayId: null` (explicit) means a free-form custom-named day.
+  const isCustom = raw?.weekdayId === null && typeof raw?.label === 'string'
+  const weekdayId = isCustom
+    ? null
+    : weekdayIds.has(raw?.weekdayId)
+      ? raw.weekdayId
+      : fallbackWeekdayId
+  const label = isCustom
+    ? raw.label.trim().slice(0, MAX_CUSTOM_DAY_LABEL_LENGTH) ||
+      DEFAULT_CUSTOM_DAY_LABEL
+    : ''
+
+  const themeId = getTheme(
+    typeof raw?.themeId === 'string' ? raw.themeId : legacyThemeId,
+  ).id
+  const theme = getTheme(themeId)
+  const rawSelectedColor =
+    typeof raw?.selectedColor === 'string' ? raw.selectedColor : legacySelectedColor
+  const selectedColor = theme.colors.includes(rawSelectedColor)
+    ? rawSelectedColor
+    : theme.colors[0]
 
   return {
     id: typeof raw?.id === 'string' ? raw.id : createEmptyDay(weekdayId).id,
     weekdayId,
+    label,
+    themeId,
+    selectedColor,
     blocks: Array.isArray(raw?.blocks)
       ? raw.blocks
           .filter(
@@ -89,30 +162,44 @@ export function parseProject(raw) {
     throw new Error('Invalid project file')
   }
 
-  const themeId =
-    typeof raw.themeId === 'string'
-      ? getTheme(raw.themeId).id
-      : DEFAULT_THEME_ID
-  const theme = getTheme(themeId)
+  // Legacy (pre-per-day palette) saves kept theme/color at this top level —
+  // used only as a fallback for days that don't carry their own yet.
+  const legacyThemeId =
+    typeof raw.themeId === 'string' ? getTheme(raw.themeId).id : DEFAULT_THEME_ID
+  const legacySelectedColor =
+    typeof raw.selectedColor === 'string' ? raw.selectedColor : null
 
   let days = Array.isArray(raw.days)
     ? raw.days.slice(0, MAX_DAYS).map((day, index) =>
-        sanitizeDay(day, WEEKDAYS[index % WEEKDAYS.length].id),
+        sanitizeDay(
+          day,
+          WEEKDAYS[index % WEEKDAYS.length].id,
+          legacyThemeId,
+          legacySelectedColor,
+        ),
       )
     : createInitialWeek()
 
   if (days.length === 0) days = createInitialWeek()
 
-  // Ensure unique weekdays when possible
+  // Ensure unique weekdays when possible (custom-named days are exempt).
   const used = new Set()
-  days = days.map((day, index) => {
+  days = days.map((day) => {
+    if (day.weekdayId == null) return day
     if (!used.has(day.weekdayId)) {
       used.add(day.weekdayId)
       return day
     }
     const fallback =
-      WEEKDAYS.find((weekday) => !used.has(weekday.id))?.id ??
-      WEEKDAYS[index % WEEKDAYS.length].id
+      WEEKDAYS.find((weekday) => !used.has(weekday.id))?.id ?? null
+    if (fallback == null) {
+      // No free weekday left — keep it as a custom-named day instead.
+      return {
+        ...day,
+        weekdayId: null,
+        label: DEFAULT_CUSTOM_DAY_LABEL,
+      }
+    }
     used.add(fallback)
     return { ...day, weekdayId: fallback }
   })
@@ -154,24 +241,43 @@ export function parseProject(raw) {
     ? raw.activeCategoryId
     : safeCategories[0].id
 
-  const selectedColor =
-    typeof raw.selectedColor === 'string' &&
-    theme.colors.includes(raw.selectedColor)
-      ? raw.selectedColor
-      : theme.colors[0]
-
   return {
     title: typeof raw.title === 'string' ? raw.title : DEFAULT_PLANNER_TITLE,
-    themeId,
-    selectedColor,
     customBackgroundSrc:
       typeof raw.customBackgroundSrc === 'string'
         ? raw.customBackgroundSrc
         : null,
-    canvasSize:
-      typeof raw.canvasSize === 'number' && Number.isFinite(raw.canvasSize)
-        ? raw.canvasSize
-        : null,
+    backgroundSize: (() => {
+      const value =
+        typeof raw.backgroundSize === 'number'
+          ? raw.backgroundSize
+          : typeof raw.canvasSize === 'number'
+            ? raw.canvasSize
+            : null
+      return value != null && Number.isFinite(value) ? value : null
+    })(),
+    backgroundOpacity:
+      typeof raw.backgroundOpacity === 'number'
+        ? Math.min(1, Math.max(0, raw.backgroundOpacity))
+        : 1,
+    appMode: raw.appMode === APP_MODES.wallpaper ? APP_MODES.wallpaper : APP_MODES.edit,
+    artboardPresetId: resolveArtboardPresetId(raw.artboardPresetId),
+    customAspectW: clampAspectSide(
+      raw.artboardPresetId === 'print' && raw.customAspectW == null
+        ? 210
+        : raw.customAspectW,
+      DEFAULT_CUSTOM_ASPECT_W,
+    ),
+    customAspectH: clampAspectSide(
+      raw.artboardPresetId === 'print' && raw.customAspectH == null
+        ? 297
+        : raw.customAspectH,
+      DEFAULT_CUSTOM_ASPECT_H,
+    ),
+    wallpaperPlacements: sanitizeWallpaperPlacements(
+      raw.wallpaperPlacements,
+      days,
+    ),
     days,
     activeDayId,
     stickerCategories: safeCategories,

@@ -1,5 +1,10 @@
 import { MAX_DAYS, WEEKDAYS, getWeekday } from '../../constants/planner'
 
+function dayLabel(day) {
+  if (day.weekdayId) return getWeekday(day.weekdayId).label
+  return day.label?.trim() || '이름없음'
+}
+
 function IconPlus() {
   return (
     <svg
@@ -36,55 +41,68 @@ function IconClose() {
 
 /**
  * Compact weekday switcher for the right sidebar.
+ * In wallpaper mode, tabs toggle inclusion on the board (multi-select).
  */
+const CUSTOM_OPTION_VALUE = '__custom__'
+
 export default function DayTabs({
   days,
   activeDayId,
-  availableWeekdays,
   onSelectDay,
   onAddDay,
   onRemoveDay,
   onChangeWeekday,
+  onRenameDay,
+  multiSelect = false,
+  selectedDayIds = [],
+  onToggleDay,
 }) {
   const activeDay = days.find((day) => day.id === activeDayId) ?? days[0]
+  const selectedSet = new Set(selectedDayIds)
 
   return (
     <div className="day-tabs">
       <div className="day-tabs__list" role="tablist" aria-label="days">
         {days.map((day) => {
-          const meta = getWeekday(day.weekdayId)
+          const label = dayLabel(day)
+          const isOn =
+            multiSelect ? selectedSet.has(day.id) : day.id === activeDay.id
           return (
             <button
               key={day.id}
               type="button"
               role="tab"
-              aria-selected={day.id === activeDay.id}
-              className={
-                day.id === activeDay.id
-                  ? 'day-tabs__tab is-active'
-                  : 'day-tabs__tab'
+              aria-selected={isOn}
+              className={isOn ? 'day-tabs__tab is-active' : 'day-tabs__tab'}
+              title={
+                multiSelect
+                  ? selectedSet.has(day.id)
+                    ? `${label} 제외`
+                    : `${label} 포함`
+                  : label
               }
-              title={meta.label}
-              onClick={() => onSelectDay(day.id)}
+              onClick={() =>
+                multiSelect ? onToggleDay?.(day.id) : onSelectDay(day.id)
+              }
             >
-              {meta.label}
+              {label}
             </button>
           )
         })}
 
-        {days.length < MAX_DAYS && availableWeekdays.length > 0 && (
+        {!multiSelect && days.length < MAX_DAYS && (
           <button
             type="button"
             className="day-tabs__tab day-tabs__tab--add"
             aria-label="add day"
-            title="add day"
+            title="시간표 추가"
             onClick={() => onAddDay()}
           >
             <IconPlus />
           </button>
         )}
 
-        {days.length > 1 && (
+        {!multiSelect && days.length > 1 && (
           <button
             type="button"
             className="day-tabs__remove"
@@ -97,32 +115,53 @@ export default function DayTabs({
         )}
       </div>
 
-      <label className="day-tabs__weekday">
-        <span className="visually-hidden">weekday</span>
-        <select
-          value={activeDay.weekdayId}
-          aria-label="weekday"
-          onChange={(event) =>
-            onChangeWeekday(activeDay.id, event.target.value)
-          }
-        >
-          {WEEKDAYS.map((weekday) => {
-            const taken = days.some(
-              (day) =>
-                day.weekdayId === weekday.id && day.id !== activeDay.id,
-            )
-            return (
-              <option
-                key={weekday.id}
-                value={weekday.id}
-                disabled={taken}
-              >
-                {weekday.label}
-              </option>
-            )
-          })}
-        </select>
-      </label>
+      {!multiSelect && (
+        <>
+          <label className="day-tabs__weekday">
+            <span className="visually-hidden">weekday</span>
+            <select
+              value={activeDay.weekdayId ?? CUSTOM_OPTION_VALUE}
+              aria-label="weekday"
+              onChange={(event) => {
+                const value = event.target.value
+                onChangeWeekday(
+                  activeDay.id,
+                  value === CUSTOM_OPTION_VALUE ? null : value,
+                )
+              }}
+            >
+              {WEEKDAYS.map((weekday) => {
+                const taken = days.some(
+                  (day) =>
+                    day.weekdayId === weekday.id && day.id !== activeDay.id,
+                )
+                return (
+                  <option key={weekday.id} value={weekday.id} disabled={taken}>
+                    {weekday.label}
+                  </option>
+                )
+              })}
+              <option value={CUSTOM_OPTION_VALUE}>직접 입력</option>
+            </select>
+          </label>
+
+          {activeDay.weekdayId == null && (
+            <input
+              key={activeDay.id}
+              type="text"
+              className="day-tabs__custom-name"
+              defaultValue={activeDay.label ?? ''}
+              placeholder="이름 (예: 여행)"
+              maxLength={12}
+              aria-label="custom day name"
+              onBlur={(event) => onRenameDay?.(activeDay.id, event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') event.currentTarget.blur()
+              }}
+            />
+          )}
+        </>
+      )}
     </div>
   )
 }

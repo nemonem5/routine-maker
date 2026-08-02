@@ -1,6 +1,20 @@
-import { HOURS_PER_DAY, PLANNER_GEOMETRY, SLOT_ANGLE } from '../constants/planner'
+import {
+  DEFAULT_THEME_ID,
+  HOURS_PER_DAY,
+  PLANNER_GEOMETRY,
+  SLOT_ANGLE,
+  getTheme,
+} from '../constants/planner'
 
 const EPS = 1e-6
+/**
+ * How far to step off a boundary when asking "what color is on this side?".
+ * Must be comfortably LARGER than EPS — `timeInBlock` treats anything within
+ * EPS of an edge as inside the block, so sampling at exactly EPS lands back on
+ * the boundary itself and reports the wrong side. Still far below the 5-minute
+ * snap grid, so it can never skip over a real block.
+ */
+const SIDE_SAMPLE = 1e-3
 /** Snap edge drags to this many minutes. */
 export const TIME_SNAP_MINUTES = 5
 /** Min painted arc length (hours). */
@@ -10,9 +24,14 @@ export const EDGE_HIT_HOURS = 0.14
 
 /**
  * Convert CSS pixel size to device-pixel canvas size for crisp rendering.
+ * Clamped on both ends: capped at 2 so huge/retina displays don't render an
+ * oversized buffer, and floored at 1 so real browser zoom-out (which can
+ * report devicePixelRatio well under 1) never drops the canvas's own buffer
+ * below its CSS display size — that would force the browser to upscale a
+ * too-small bitmap, blurring/thickening every hairline stroke on it.
  */
 export function getDevicePixelRatio() {
-  return Math.min(window.devicePixelRatio || 1, 2)
+  return Math.min(Math.max(window.devicePixelRatio || 1, 1), 2)
 }
 
 /**
@@ -212,31 +231,71 @@ export function getHourColorMap(blocks) {
 }
 
 /**
- * Divider times (fractional hours) to draw.
- * Same-color continuous paint skips integer hour lines between them.
+ * What a ray at a given time is for. Each kind gets its own stroke treatment.
+ * - grid: hour tick in unpainted space
+ * - boundary: two different fills meet — needs to read clearly
+ * - edge: a fill meets empty space — the outline of a painted region
+ * - seam: two same-colored fills meet. No line should be *seen* here, but the
+ *   ray still has to be stroked in the fill color: two separately filled
+ *   wedges antialias against the white disk underneath, leaving a pale
+ *   hairline at their shared edge. Skipping the stroke leaves that artifact
+ *   exposed; painting over it in the fill color heals it.
  */
-export function getDividerTimes(blocks) {
-  const times = []
+export const RAY_KINDS = {
+  grid: 'grid',
+  boundary: 'boundary',
+  edge: 'edge',
+  seam: 'seam',
+}
 
-  for (let hour = 0; hour < HOURS_PER_DAY; hour += 1) {
-    const left = colorAtTime(blocks, hour - EPS)
-    const right = colorAtTime(blocks, hour + EPS)
-    if (left != null && left === right) continue
-    times.push(hour)
-  }
+/**
+ * Rays to stroke, as { time, kind, left, right }.
+ *
+ * Only real block edges can show a seam, so those are collected from the
+ * blocks themselves; the plain hour grid is only added where nothing is
+ * painted. An hour mark in the middle of one continuous fill gets no ray —
+ * there is no edge there to begin with.
+ */
+export function getDividerRays(blocks) {
+  const rays = []
+  const seen = new Set()
 
-  for (const block of blocks) {
-    for (const edge of [block.startHour, block.endHour]) {
-      const t = normalizeHour(edge)
-      const nearestHour = Math.round(t) % HOURS_PER_DAY
-      if (Math.abs(t - nearestHour) < EPS || Math.abs(t - nearestHour - HOURS_PER_DAY) < EPS) {
-        continue
-      }
-      times.push(t)
+  function classify(t) {
+    const left = colorAtTime(blocks, t - SIDE_SAMPLE)
+    const right = colorAtTime(blocks, t + SIDE_SAMPLE)
+    if (left == null && right == null) return { kind: RAY_KINDS.grid, left, right }
+    if (left != null && right != null) {
+      const kind = left === right ? RAY_KINDS.seam : RAY_KINDS.boundary
+      return { kind, left, right }
     }
+    return { kind: RAY_KINDS.edge, left, right }
   }
 
-  return times
+  function addRay(t) {
+    const time = normalizeHour(t)
+    const key = time.toFixed(6)
+    if (seen.has(key)) return null
+    seen.add(key)
+    const ray = { time, ...classify(time) }
+    rays.push(ray)
+    return ray
+  }
+
+  // Where fills actually meet: every block start/end, whole or fractional.
+  for (const block of blocks) {
+    addRay(block.startHour)
+    addRay(block.endHour)
+  }
+
+  // Hour ticks, but only through unpainted space.
+  for (let hour = 0; hour < HOURS_PER_DAY; hour += 1) {
+    const time = normalizeHour(hour)
+    if (seen.has(time.toFixed(6))) continue
+    if (classify(time).kind !== RAY_KINDS.grid) continue
+    addRay(hour)
+  }
+
+  return rays
 }
 
 function subtractIntervalFromBlock(block, cutStart, cutEnd) {
@@ -407,12 +466,33 @@ export function createStickerId(prefix = 'sticker') {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`
 }
 
-export function createEmptyDay(weekdayId = 'mon') {
+/**
+ * A day tab is either tied to a weekday (`weekdayId` set, e.g. 'mon') or
+ * a free-form custom day (`weekdayId: null`, display name in `label`).
+ *
+ * `themeId`/`selectedColor` live per-day (not globally) so each schedule
+ * keeps its own last-used palette — switching to a different day's tab
+ * restores whatever palette that day was last painted with, instead of
+ * carrying over whichever palette happened to be active elsewhere.
+ */
+export function createEmptyDay(
+  weekdayId = 'mon',
+  label = '',
+  themeId = DEFAULT_THEME_ID,
+  selectedColor = null,
+) {
+  const theme = getTheme(themeId)
   return {
     id: createStickerId('day'),
     weekdayId,
+    label,
     blocks: [],
     stickers: [],
+    themeId: theme.id,
+    selectedColor:
+      typeof selectedColor === 'string' && theme.colors.includes(selectedColor)
+        ? selectedColor
+        : theme.colors[0],
   }
 }
 

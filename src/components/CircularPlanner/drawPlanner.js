@@ -1,17 +1,22 @@
 import {
   HOURS_PER_DAY,
   PLANNER_GEOMETRY,
+  PLANNER_SIZE,
   PLANNER_STYLE,
 } from '../../constants/planner'
 import {
-  colorAtTime,
+  RAY_KINDS,
   formatClockLabel,
-  getDividerTimes,
+  getDividerRays,
   getPlannerLayout,
   hourToAngle,
   polarToCartesian,
 } from '../../utils/canvasGeometry'
-import { hexToRgba, subtleDividerColor, toneFromBackground } from '../../utils/color'
+import {
+  dividerColorForBoundary,
+  hexToRgba,
+  toneFromBackground,
+} from '../../utils/color'
 
 /**
  * Draw the full circular planner frame onto a 2D canvas context.
@@ -26,18 +31,34 @@ export function drawPlanner(ctx, size, options = {}) {
     previewColor = null,
     rangeStart = null,
     pageBackground = '#f7f4ef',
-    backgroundImage = null,
     ringStroke = '#3d4a6b',
   } = options
   const layout = getPlannerLayout(size)
-  const style = PLANNER_STYLE
+  // Reference values are tuned for PLANNER_SIZE — scale so proportions hold
+  // whether this is a tiny board thumbnail or a large PNG export tile.
+  const scale = size / PLANNER_SIZE
+  const style = {
+    ...PLANNER_STYLE,
+    strokeWidth: Math.max(
+      PLANNER_STYLE.strokeMinWidth,
+      PLANNER_STYLE.strokeWidth * scale,
+    ),
+    dividerWidth: Math.max(
+      PLANNER_STYLE.dividerMinWidth,
+      PLANNER_STYLE.dividerWidth * scale,
+    ),
+    labelFontSize: Math.max(
+      PLANNER_STYLE.labelMinFontPx,
+      PLANNER_STYLE.labelFontSize * scale,
+    ),
+  }
   const labelColor = toneFromBackground(pageBackground, {
     satDelta: style.labelSatDelta,
     lightDelta: style.labelLightDelta,
   })
 
   ctx.clearRect(0, 0, size, size)
-  drawBackground(ctx, size, pageBackground, backgroundImage)
+  // Background image lives on the stage layer behind this canvas.
   drawDiskBase(ctx, layout, style)
   drawBlocks(ctx, layout, blocks)
   drawPreview(ctx, layout, previewRange, previewColor, style)
@@ -46,23 +67,6 @@ export function drawPlanner(ctx, size, options = {}) {
   drawHourLabels(ctx, layout, style, labelColor)
   drawStickers(ctx, size, stickers, imageCache, selectedStickerId, ringStroke)
   drawAnchorHour(ctx, layout, rangeStart, ringStroke, style)
-}
-
-function drawBackground(ctx, size, pageBackground, backgroundImage = null) {
-  if (backgroundImage?.complete && backgroundImage.naturalWidth) {
-    const iw = backgroundImage.naturalWidth
-    const ih = backgroundImage.naturalHeight
-    const scale = Math.max(size / iw, size / ih)
-    const dw = iw * scale
-    const dh = ih * scale
-    const dx = (size - dw) / 2
-    const dy = (size - dh) / 2
-    ctx.drawImage(backgroundImage, dx, dy, dw, dh)
-    return
-  }
-
-  ctx.fillStyle = pageBackground
-  ctx.fillRect(0, 0, size, size)
 }
 
 function drawDiskBase(ctx, layout, style) {
@@ -106,22 +110,19 @@ function drawPreview(ctx, layout, previewRange, previewColor, style) {
 function drawDividers(ctx, layout, style, blocks) {
   const { center, outerRadius } = layout
   const hub = outerRadius * PLANNER_GEOMETRY.dividerHubRatio
-  const emptyFill = style.ringFill
 
   ctx.lineWidth = style.dividerWidth
-  ctx.lineCap = 'round'
 
-  for (const time of getDividerTimes(blocks)) {
-    const sample =
-      colorAtTime(blocks, time + 1e-4) ??
-      colorAtTime(blocks, time - 1e-4) ??
-      emptyFill
+  // Seams are healed first so a real boundary line always wins the pixel.
+  const rays = getDividerRays(blocks)
+  rays.sort((a, b) => rayOrder(a.kind) - rayOrder(b.kind))
 
-    ctx.strokeStyle = subtleDividerColor(sample, {
-      satDelta: style.dividerSatDelta,
-      lightDelta: style.dividerLightDelta,
-    })
-    const angle = hourToAngle(time)
+  for (const ray of rays) {
+    ctx.strokeStyle = strokeForRay(ray, style)
+    // A seam repair must not spill past the disk edge, so no round cap there.
+    ctx.lineCap = ray.kind === RAY_KINDS.seam ? 'butt' : 'round'
+
+    const angle = hourToAngle(ray.time)
     const outer = polarToCartesian(center, center, outerRadius, angle)
     const inner = polarToCartesian(center, center, hub, angle)
 
@@ -129,6 +130,31 @@ function drawDividers(ctx, layout, style, blocks) {
     ctx.moveTo(outer.x, outer.y)
     ctx.lineTo(inner.x, inner.y)
     ctx.stroke()
+  }
+}
+
+function rayOrder(kind) {
+  return kind === RAY_KINDS.seam ? 0 : 1
+}
+
+function strokeForRay(ray, style) {
+  switch (ray.kind) {
+    case RAY_KINDS.grid:
+      return style.emptyDividerColor
+    // Same fill on both sides: paint the antialiasing gap back in, invisibly.
+    case RAY_KINDS.seam:
+      return ray.left
+    // Outline of a painted region against the bare disk.
+    case RAY_KINDS.edge:
+      return dividerColorForBoundary(ray.left ?? ray.right, style.ringFill, {
+        satDelta: style.dividerSatDelta,
+        minContrast: style.dividerEdgeMinContrast,
+      })
+    default:
+      return dividerColorForBoundary(ray.left, ray.right, {
+        satDelta: style.dividerSatDelta,
+        minContrast: style.dividerMinContrast,
+      })
   }
 }
 
@@ -150,7 +176,7 @@ function drawHourLabels(ctx, layout, style, labelColor) {
   const { center, labelRadius } = layout
 
   ctx.fillStyle = labelColor
-  ctx.font = style.labelFont
+  ctx.font = `${style.labelFontWeight} ${style.labelFontSize}px ${style.labelFontFamily}`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
 
