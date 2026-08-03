@@ -3,6 +3,8 @@ import {
   PLANNER_GEOMETRY,
   PLANNER_SIZE,
   PLANNER_STYLE,
+  STICKER_ROTATE_HANDLE_GAP,
+  STICKER_ROTATE_HANDLE_RADIUS,
 } from '../../constants/planner'
 import {
   RAY_KINDS,
@@ -65,7 +67,7 @@ export function drawPlanner(ctx, size, options = {}) {
   drawDividers(ctx, layout, style, blocks)
   drawOuterStroke(ctx, layout, style, ringStroke)
   drawHourLabels(ctx, layout, style, labelColor)
-  drawStickers(ctx, size, stickers, imageCache, selectedStickerId, ringStroke)
+  drawStickers(ctx, size, stickers, imageCache, selectedStickerId, ringStroke, scale)
   drawAnchorHour(ctx, layout, rangeStart, ringStroke, style)
 }
 
@@ -203,6 +205,7 @@ function drawStickers(
   imageCache,
   selectedStickerId,
   ringStroke,
+  scale = 1,
 ) {
   if (!stickers?.length) return
 
@@ -213,24 +216,31 @@ function drawStickers(
     const width = size * sticker.sizeRatio
     const aspect = img.naturalHeight / img.naturalWidth || 1
     const height = width * aspect
-    const x = sticker.nx * size - width / 2
-    const y = sticker.ny * size - height / 2
+    const cx = sticker.nx * size
+    const cy = sticker.ny * size
+    const rotationRad = ((sticker.rotation || 0) * Math.PI) / 180
 
-    ctx.drawImage(img, x, y, width, height)
+    // Everything below is drawn in the sticker's own local space (centered
+    // on origin, unrotated) — translate+rotate once so the image, selection
+    // outline, and handles all rotate together automatically.
+    ctx.save()
+    ctx.translate(cx, cy)
+    ctx.rotate(rotationRad)
+    ctx.drawImage(img, -width / 2, -height / 2, width, height)
 
     if (sticker.id === selectedStickerId) {
       ctx.strokeStyle = ringStroke
       ctx.lineWidth = 1.25
       ctx.setLineDash([4, 3])
-      ctx.strokeRect(x - 2, y - 2, width + 4, height + 4)
+      ctx.strokeRect(-width / 2 - 2, -height / 2 - 2, width + 4, height + 4)
       ctx.setLineDash([])
 
       const handleSize = 8
       const corners = [
-        [x, y],
-        [x + width, y],
-        [x, y + height],
-        [x + width, y + height],
+        [-width / 2, -height / 2],
+        [width / 2, -height / 2],
+        [-width / 2, height / 2],
+        [width / 2, height / 2],
       ]
       ctx.fillStyle = '#fff'
       ctx.strokeStyle = ringStroke
@@ -241,6 +251,25 @@ function drawStickers(
         ctx.fill()
         ctx.stroke()
       }
+
+      // Rotate handle: a small circle above the top edge, on a stalk — its
+      // world position must match getStickerHandles().rotate exactly.
+      const rotateGap = STICKER_ROTATE_HANDLE_GAP * scale
+      const rotateRadius = STICKER_ROTATE_HANDLE_RADIUS * scale
+      const rotateY = -height / 2 - rotateGap
+      ctx.lineWidth = 1.25
+      ctx.beginPath()
+      ctx.moveTo(0, -height / 2)
+      ctx.lineTo(0, rotateY)
+      ctx.stroke()
+
+      ctx.beginPath()
+      ctx.arc(0, rotateY, rotateRadius, 0, Math.PI * 2)
+      ctx.fillStyle = '#fff'
+      ctx.fill()
+      ctx.stroke()
     }
+
+    ctx.restore()
   }
 }

@@ -9,6 +9,7 @@ import {
   DEFAULT_CUSTOM_DAY_LABEL,
   DEFAULT_PLANNER_TITLE,
   DEFAULT_STICKER_CATEGORY_ID,
+  DEFAULT_STICKER_ROTATION,
   DEFAULT_STICKER_SIZE_RATIO,
   DEFAULT_THEME_ID,
   HOURS_PER_DAY,
@@ -493,6 +494,7 @@ export function usePlannerState() {
       nx,
       ny,
       sizeRatio: DEFAULT_STICKER_SIZE_RATIO,
+      rotation: DEFAULT_STICKER_ROTATION,
     }
 
     setDays((prev) =>
@@ -533,6 +535,18 @@ export function usePlannerState() {
         ...day,
         stickers: day.stickers.map((sticker) =>
           sticker.id === id ? { ...sticker, sizeRatio: clamped } : sticker,
+        ),
+      })),
+    )
+  }
+
+  function rotateSticker(id, rotation) {
+    const normalized = ((rotation % 360) + 360) % 360
+    setDays((prev) =>
+      updateActiveDay(prev, resolvedActiveDayId, (day) => ({
+        ...day,
+        stickers: day.stickers.map((sticker) =>
+          sticker.id === id ? { ...sticker, rotation: normalized } : sticker,
         ),
       })),
     )
@@ -751,6 +765,7 @@ export function usePlannerState() {
     placeSticker,
     moveSticker,
     resizeSticker,
+    rotateSticker,
     removeSticker,
     saveProjectFile,
     loadProjectFromFile,

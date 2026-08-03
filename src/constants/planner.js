@@ -195,6 +195,16 @@ export const WEEKDAYS = [
 export const DEFAULT_STICKER_SIZE_RATIO = 0.09
 export const MIN_STICKER_SIZE_RATIO = 0.04
 export const MAX_STICKER_SIZE_RATIO = 0.45
+/** Default rotation for newly placed stickers, in degrees. */
+export const DEFAULT_STICKER_ROTATION = 0
+
+/**
+ * Rotate-handle geometry, tuned for PLANNER_SIZE — both the drawing code and
+ * the hit-test code import these so the visible handle and its clickable
+ * area always agree, whatever the canvas is scaled to.
+ */
+export const STICKER_ROTATE_HANDLE_GAP = 18
+export const STICKER_ROTATE_HANDLE_RADIUS = 6
 
 /** Fixed planner (circle) canvas size in CSS px. */
 export const PLANNER_SIZE = 560

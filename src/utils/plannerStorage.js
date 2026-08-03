@@ -149,6 +149,8 @@ function sanitizeDay(
             ny: sticker.ny,
             sizeRatio:
               typeof sticker.sizeRatio === 'number' ? sticker.sizeRatio : 0.09,
+            rotation:
+              typeof sticker.rotation === 'number' ? sticker.rotation : 0,
           }))
       : [],
   }

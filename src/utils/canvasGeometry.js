@@ -2,7 +2,10 @@ import {
   DEFAULT_THEME_ID,
   HOURS_PER_DAY,
   PLANNER_GEOMETRY,
+  PLANNER_SIZE,
   SLOT_ANGLE,
+  STICKER_ROTATE_HANDLE_GAP,
+  STICKER_ROTATE_HANDLE_RADIUS,
   getTheme,
 } from '../constants/planner'
 
@@ -517,14 +520,49 @@ export function getStickerBounds(sticker, canvasSize, aspect = 1) {
   }
 }
 
-/** Corner handle positions for a sticker (NW/NE/SW/SE). */
+/** Rotate a local-space point (relative to origin) by `angleDeg` clockwise. */
+function rotatePoint(x, y, angleDeg) {
+  const rad = (angleDeg * Math.PI) / 180
+  const cos = Math.cos(rad)
+  const sin = Math.sin(rad)
+  return { x: x * cos - y * sin, y: x * sin + y * cos }
+}
+
+/** World point → sticker-local point (undoes the sticker's own rotation). */
+function toStickerLocal(x, y, sticker, canvasSize) {
+  const cx = sticker.nx * canvasSize
+  const cy = sticker.ny * canvasSize
+  return rotatePoint(x - cx, y - cy, -(sticker.rotation || 0))
+}
+
+/** Sticker-local point → world point (applies the sticker's own rotation). */
+function fromStickerLocal(lx, ly, sticker, canvasSize) {
+  const cx = sticker.nx * canvasSize
+  const cy = sticker.ny * canvasSize
+  const world = rotatePoint(lx, ly, sticker.rotation || 0)
+  return { x: cx + world.x, y: cy + world.y }
+}
+
+/**
+ * Corner resize handles (NW/NE/SW/SE) plus a rotate handle above the top
+ * edge, all rotated to match the sticker's current `rotation`. `scale` is
+ * canvasSize / PLANNER_SIZE so the rotate handle's gap/size stays visually
+ * consistent whether the canvas is a small thumbnail or a large export tile.
+ */
 export function getStickerHandles(sticker, canvasSize, aspect = 1) {
   const box = getStickerBounds(sticker, canvasSize, aspect)
+  const halfW = box.width / 2
+  const halfH = box.height / 2
+  const scale = canvasSize / PLANNER_SIZE
+  const rotateGap = STICKER_ROTATE_HANDLE_GAP * scale
+  const toWorld = (lx, ly) => fromStickerLocal(lx, ly, sticker, canvasSize)
+
   return {
-    nw: { x: box.left, y: box.top },
-    ne: { x: box.right, y: box.top },
-    sw: { x: box.left, y: box.bottom },
-    se: { x: box.right, y: box.bottom },
+    nw: toWorld(-halfW, -halfH),
+    ne: toWorld(halfW, -halfH),
+    sw: toWorld(-halfW, halfH),
+    se: toWorld(halfW, halfH),
+    rotate: toWorld(0, -halfH - rotateGap),
   }
 }
 
@@ -537,8 +575,10 @@ export function hitTestStickerHandle(
   hitRadius = 10,
 ) {
   const handles = getStickerHandles(sticker, canvasSize, aspect)
+  const rotateHitRadius = (STICKER_ROTATE_HANDLE_RADIUS * (canvasSize / PLANNER_SIZE)) + hitRadius / 2
   for (const [corner, point] of Object.entries(handles)) {
-    if (Math.hypot(x - point.x, y - point.y) <= hitRadius) {
+    const radius = corner === 'rotate' ? rotateHitRadius : hitRadius
+    if (Math.hypot(x - point.x, y - point.y) <= radius) {
       return corner
     }
   }
@@ -547,15 +587,28 @@ export function hitTestStickerHandle(
 
 /**
  * Uniform sizeRatio from pointer distance to sticker center (aspect locked).
+ * Pointer is rotated back into the sticker's local frame first so resizing
+ * behaves the same regardless of how the sticker is currently rotated.
  */
 export function sizeRatioFromPointer(x, y, sticker, canvasSize, aspect = 1) {
-  const cx = sticker.nx * canvasSize
-  const cy = sticker.ny * canvasSize
+  const local = toStickerLocal(x, y, sticker, canvasSize)
   const halfW = Math.max(
-    Math.abs(x - cx),
-    Math.abs(y - cy) / Math.max(aspect, 0.01),
+    Math.abs(local.x),
+    Math.abs(local.y) / Math.max(aspect, 0.01),
   )
   return (halfW * 2) / canvasSize
+}
+
+/**
+ * Absolute rotation (degrees) implied by the pointer's position relative to
+ * the sticker center — the rotate handle simply follows the cursor, so 0°
+ * corresponds to the pointer sitting directly above the sticker.
+ */
+export function angleFromPointer(x, y, sticker, canvasSize) {
+  const cx = sticker.nx * canvasSize
+  const cy = sticker.ny * canvasSize
+  const deg = (Math.atan2(y - cy, x - cx) * 180) / Math.PI + 90
+  return ((deg % 360) + 360) % 360
 }
 
 export function hitTestSticker(x, y, stickers, canvasSize, getAspect) {
@@ -563,7 +616,11 @@ export function hitTestSticker(x, y, stickers, canvasSize, getAspect) {
     const sticker = stickers[i]
     const aspect = getAspect?.(sticker) ?? 1
     const box = getStickerBounds(sticker, canvasSize, aspect)
-    if (x >= box.left && x <= box.right && y >= box.top && y <= box.bottom) {
+    const local = toStickerLocal(x, y, sticker, canvasSize)
+    if (
+      Math.abs(local.x) <= box.width / 2 &&
+      Math.abs(local.y) <= box.height / 2
+    ) {
       return sticker
     }
   }

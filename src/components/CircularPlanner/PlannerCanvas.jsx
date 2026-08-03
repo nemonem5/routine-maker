@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { TOOLS } from '../../constants/planner'
 import {
+  angleFromPointer,
   getDevicePixelRatio,
   getPlannerLayout,
   hitTestBlockEdge,
@@ -44,6 +45,7 @@ export default function PlannerCanvas({
   onSelectSticker,
   onMoveSticker,
   onResizeSticker,
+  onRotateSticker,
 }) {
   const canvasRef = useRef(null)
   const dragRef = useRef(null)
@@ -134,6 +136,11 @@ export default function PlannerCanvas({
           size,
           stickerAspect(selected),
         )
+        if (corner === 'rotate') {
+          dragRef.current = { kind: 'sticker-rotate', id: selected.id }
+          canvasRef.current?.setPointerCapture?.(event.pointerId)
+          return
+        }
         if (corner) {
           dragRef.current = {
             kind: 'sticker-resize',
@@ -219,6 +226,18 @@ export default function PlannerCanvas({
       return
     }
 
+    if (drag?.kind === 'sticker-rotate') {
+      const sticker = stickers.find((item) => item.id === drag.id)
+      if (sticker) {
+        let angle = angleFromPointer(x, y, sticker, size)
+        // Hold Shift to snap to 15° steps — makes it easy to line stickers
+        // up straight/diagonal without fighting free-hand precision.
+        if (event.shiftKey) angle = Math.round(angle / 15) * 15
+        onRotateSticker?.(drag.id, angle)
+      }
+      return
+    }
+
     if (drag?.kind === 'edge') {
       const time = hitTestTime(x, y, layout)
       if (time != null) {
@@ -263,7 +282,7 @@ export default function PlannerCanvas({
           size,
           stickerAspect(selected),
         )
-        canvas.style.cursor = corner ? 'nwse-resize' : ''
+        canvas.style.cursor = corner === 'rotate' ? 'grab' : corner ? 'nwse-resize' : ''
       }
     }
   }

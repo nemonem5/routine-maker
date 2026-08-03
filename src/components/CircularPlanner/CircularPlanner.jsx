@@ -136,6 +136,7 @@ export default function CircularPlanner() {
     placeSticker,
     moveSticker,
     resizeSticker,
+    rotateSticker,
     removeSticker,
     handleResizeBlockEdge,
     edgeHover,
@@ -465,6 +466,7 @@ export default function CircularPlanner() {
           onSelectSticker={setSelectedStickerId}
           onMoveSticker={moveSticker}
           onResizeSticker={resizeSticker}
+          onRotateSticker={rotateSticker}
         />
         {!uiHidden && bgEditMode && (
           <button
