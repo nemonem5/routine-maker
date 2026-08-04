@@ -112,12 +112,13 @@ export default function CircularPlanner() {
     setArtboardPreset,
     setCustomAspect,
     wallpaperPlacements,
-    selectedWallpaperDayId,
-    setSelectedWallpaperDayId,
+    selectedWallpaperDayIds,
+    selectWallpaperPlacement,
     toggleWallpaperDay,
     autoArrangeWallpaper,
-    moveWallpaperPlacement,
+    moveWallpaperPlacements,
     bringWallpaperToFront,
+    resizeWallpaperPlacements,
     saveProjectFile,
     loadProjectFromFile,
     stickerCategories,
@@ -138,6 +139,10 @@ export default function CircularPlanner() {
     resizeSticker,
     rotateSticker,
     removeSticker,
+    copySelectedSticker,
+    pasteSticker,
+    undo,
+    redo,
     handleResizeBlockEdge,
     edgeHover,
     setEdgeHover,
@@ -239,9 +244,39 @@ export default function CircularPlanner() {
   useEffect(() => {
     function onKeyDown(event) {
       if (uiHidden) return
+      const tag = document.activeElement?.tagName
+      const inField = tag === 'INPUT' || tag === 'TEXTAREA'
+      const mod = event.ctrlKey || event.metaKey
+
+      if (mod && !event.altKey && !inField) {
+        const key = event.key.toLowerCase()
+        if (key === 'z' && !event.shiftKey) {
+          if (undo()) event.preventDefault()
+          return
+        }
+        if (key === 'y' || (key === 'z' && event.shiftKey)) {
+          if (redo()) event.preventDefault()
+          return
+        }
+        if (key === 'a' && appMode === APP_MODES.wallpaper) {
+          event.preventDefault()
+          selectWallpaperPlacement(wallpaperPlacements.map((item) => item.dayId))
+          return
+        }
+        if (appMode === APP_MODES.edit) {
+          if (key === 'c') {
+            if (copySelectedSticker()) event.preventDefault()
+            return
+          }
+          if (key === 'v') {
+            if (pasteSticker()) event.preventDefault()
+            return
+          }
+        }
+      }
+
       if (event.key === 'Delete' || event.key === 'Backspace') {
-        const tag = document.activeElement?.tagName
-        if (tag === 'INPUT' || tag === 'TEXTAREA') return
+        if (inField) return
         if (selectedStickerId) {
           event.preventDefault()
           removeSticker(selectedStickerId)
@@ -250,6 +285,7 @@ export default function CircularPlanner() {
       if (event.key === 'Escape') {
         setSelectedStickerId(null)
         setPendingStickerSrc(null)
+        selectWallpaperPlacement(null)
         setBgEditMode(false)
         resetRange()
       }
@@ -259,8 +295,15 @@ export default function CircularPlanner() {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [
     uiHidden,
+    appMode,
     selectedStickerId,
     removeSticker,
+    copySelectedSticker,
+    pasteSticker,
+    undo,
+    redo,
+    selectWallpaperPlacement,
+    wallpaperPlacements,
     setSelectedStickerId,
     setPendingStickerSrc,
     resetRange,
@@ -415,9 +458,10 @@ export default function CircularPlanner() {
             theme={theme}
             imageCache={imageCache}
             imageVersion={imageVersion}
-            selectedPlacementId={uiHidden ? null : selectedWallpaperDayId}
-            onSelectPlacement={setSelectedWallpaperDayId}
-            onMovePlacement={moveWallpaperPlacement}
+            selectedPlacementIds={uiHidden ? [] : selectedWallpaperDayIds}
+            onSelectPlacement={selectWallpaperPlacement}
+            onMovePlacements={moveWallpaperPlacements}
+            onResizePlacements={resizeWallpaperPlacements}
             onBringToFront={bringWallpaperToFront}
             boardBackgroundSrc={customBackgroundSrc}
             aspect={artboardAspect}

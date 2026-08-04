@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { ARTBOARD_PREVIEW_MAX, getTheme } from '../../constants/planner'
-import { clampPlacement } from '../../utils/wallpaperLayout'
+import { clampPlacement, clampRatio } from '../../utils/wallpaperLayout'
 import PlannerCanvas from './PlannerCanvas'
 
 /**
  * Flexible composition board (phone / desktop / square / custom).
  * Placements are normalized; preview size fits the viewport.
+ * Supports multi-select (Ctrl/Shift+click), group move, and group resize.
  */
 export default function WallpaperBoard({
   days,
@@ -13,9 +14,10 @@ export default function WallpaperBoard({
   theme,
   imageCache,
   imageVersion,
-  selectedPlacementId,
+  selectedPlacementIds = [],
   onSelectPlacement,
-  onMovePlacement,
+  onMovePlacements,
+  onResizePlacements,
   onBringToFront,
   boardBackgroundSrc = null,
   aspect = 16 / 9,
@@ -50,6 +52,11 @@ export default function WallpaperBoard({
     return map
   }, [days])
 
+  const selectedSet = useMemo(
+    () => new Set(selectedPlacementIds),
+    [selectedPlacementIds],
+  )
+
   const boardAspect = frameSize.width / frameSize.height
 
   function pointerPos(event) {
@@ -80,14 +87,69 @@ export default function WallpaperBoard({
       onSelectPlacement?.(null)
       return
     }
-    onSelectPlacement?.(hit.dayId)
+
+    const additive = event.shiftKey || event.ctrlKey || event.metaKey
+    if (additive) {
+      onSelectPlacement?.(hit.dayId, { additive: true })
+      return
+    }
+
+    const alreadySelected = selectedSet.has(hit.dayId)
+    const groupIds = alreadySelected
+      ? selectedPlacementIds.filter((id) =>
+          placements.some((item) => item.dayId === id),
+        )
+      : [hit.dayId]
+
+    if (!alreadySelected) {
+      onSelectPlacement?.(hit.dayId)
+    }
+
     onBringToFront?.(hit.dayId)
+
+    const origins = Object.fromEntries(
+      groupIds.map((dayId) => {
+        const item = placements.find((entry) => entry.dayId === dayId)
+        return [dayId, { nx: item.nx, ny: item.ny }]
+      }),
+    )
+
     dragRef.current = {
+      kind: 'move',
       dayId: hit.dayId,
-      offsetX: pos.x - hit.nx * frameSize.width,
-      offsetY: pos.y - hit.ny * frameSize.height,
+      groupIds,
+      origins,
+      originPointerX: pos.x,
+      originPointerY: pos.y,
     }
     event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function handleResizePointerDown(event, dayId) {
+    event.preventDefault()
+    event.stopPropagation()
+    const item = placements.find((entry) => entry.dayId === dayId)
+    if (!item) return
+
+    const groupIds = selectedSet.has(dayId)
+      ? selectedPlacementIds.filter((id) =>
+          placements.some((entry) => entry.dayId === id),
+        )
+      : [dayId]
+
+    if (!selectedSet.has(dayId)) {
+      onSelectPlacement?.(dayId)
+    }
+
+    dragRef.current = {
+      kind: 'resize',
+      dayId,
+      groupIds,
+      startSizeRatio: item.sizeRatio,
+      originX: event.clientX,
+      originY: event.clientY,
+    }
+    frameRef.current?.setPointerCapture?.(event.pointerId)
   }
 
   function handlePointerMove(event) {
@@ -95,9 +157,32 @@ export default function WallpaperBoard({
     if (!drag) return
     const pos = pointerPos(event)
     if (!pos) return
-    const nx = (pos.x - drag.offsetX) / frameSize.width
-    const ny = (pos.y - drag.offsetY) / frameSize.height
-    onMovePlacement?.(drag.dayId, nx, ny, boardAspect)
+
+    if (drag.kind === 'move') {
+      const dnx = (pos.x - drag.originPointerX) / frameSize.width
+      const dny = (pos.y - drag.originPointerY) / frameSize.height
+      const updates = drag.groupIds.map((dayId) => {
+        const origin = drag.origins[dayId]
+        return {
+          dayId,
+          nx: origin.nx + dnx,
+          ny: origin.ny + dny,
+        }
+      })
+      onMovePlacements?.(updates, boardAspect)
+      return
+    }
+
+    if (drag.kind === 'resize') {
+      const delta = Math.max(
+        event.clientX - drag.originX,
+        event.clientY - drag.originY,
+      )
+      const nextRatio = clampRatio(
+        drag.startSizeRatio + delta / frameSize.width,
+      )
+      onResizePlacements?.(drag.groupIds, nextRatio, boardAspect)
+    }
   }
 
   function handlePointerUp(event) {
@@ -139,7 +224,7 @@ export default function WallpaperBoard({
         const size = Math.round(safe.sizeRatio * frameSize.width)
         const left = safe.nx * frameSize.width - size / 2
         const top = safe.ny * frameSize.height - size / 2
-        const selected = selectedPlacementId === item.dayId
+        const selected = selectedSet.has(item.dayId)
         // Each tile keeps its own last-used palette — never the board's
         // currently-active theme — so arranging tabs painted with
         // different palettes doesn't repaint them all the same color.
@@ -170,6 +255,17 @@ export default function WallpaperBoard({
               ringStroke={dayTheme.ringStroke}
               interactive={false}
             />
+            {selected && (
+              <button
+                type="button"
+                className="wallpaper-board__resize"
+                aria-label="크기 조절"
+                title="크기 조절"
+                onPointerDown={(event) =>
+                  handleResizePointerDown(event, item.dayId)
+                }
+              />
+            )}
           </div>
         )
       })}

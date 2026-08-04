@@ -197,6 +197,8 @@ export const MIN_STICKER_SIZE_RATIO = 0.04
 export const MAX_STICKER_SIZE_RATIO = 0.45
 /** Default rotation for newly placed stickers, in degrees. */
 export const DEFAULT_STICKER_ROTATION = 0
+/** Offset applied on each Ctrl+V so pasted stickers are not stacked exactly. */
+export const STICKER_PASTE_OFFSET = 0.04
 
 /**
  * Rotate-handle geometry, tuned for PLANNER_SIZE — both the drawing code and

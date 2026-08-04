@@ -18,6 +18,7 @@ import {
   MAX_STICKER_SIZE_RATIO,
   MIN_BACKGROUND_SIZE,
   MIN_STICKER_SIZE_RATIO,
+  STICKER_PASTE_OFFSET,
   TOOLS,
   WEEKDAYS,
   clampAspectSide,
@@ -47,8 +48,28 @@ import {
   clampPlacement,
 } from '../../utils/wallpaperLayout'
 
+const MAX_UNDO_HISTORY = 50
+
 function updateActiveDay(days, activeDayId, updater) {
   return days.map((day) => (day.id === activeDayId ? updater(day) : day))
+}
+
+function cloneHistoryState(state) {
+  return {
+    days: structuredClone(state.days),
+    activeDayId: state.activeDayId,
+    title: state.title,
+    customBackgroundSrc: state.customBackgroundSrc,
+    backgroundSize: state.backgroundSize,
+    backgroundOpacity: state.backgroundOpacity,
+    appMode: state.appMode,
+    artboardPresetId: state.artboardPresetId,
+    customAspectW: state.customAspectW,
+    customAspectH: state.customAspectH,
+    wallpaperPlacements: structuredClone(state.wallpaperPlacements),
+    stickerCategories: structuredClone(state.stickerCategories),
+    activeCategoryId: state.activeCategoryId,
+  }
 }
 
 function createDefaultLiveState() {
@@ -90,7 +111,7 @@ export function usePlannerState() {
   const [customAspectW, setCustomAspectW] = useState(DEFAULT_CUSTOM_ASPECT_W)
   const [customAspectH, setCustomAspectH] = useState(DEFAULT_CUSTOM_ASPECT_H)
   const [wallpaperPlacements, setWallpaperPlacements] = useState([])
-  const [selectedWallpaperDayId, setSelectedWallpaperDayId] = useState(null)
+  const [selectedWallpaperDayIds, setSelectedWallpaperDayIds] = useState([])
   const artboardAspect = resolveArtboardAspect(
     artboardPresetId,
     customAspectW,
@@ -105,6 +126,12 @@ export function usePlannerState() {
   )
   const [pendingStickerSrc, setPendingStickerSrc] = useState(null)
   const [selectedStickerId, setSelectedStickerId] = useState(null)
+  /** In-memory sticker clipboard for Ctrl+C / Ctrl+V (not the OS clipboard). */
+  const stickerClipboardRef = useRef(null)
+  const historyRef = useRef({ past: [], future: [] })
+  const applyingHistoryRef = useRef(false)
+  const historyGestureRef = useRef(false)
+  const liveRef = useRef(null)
 
   const resolvedActiveDayId = activeDayId ?? days[0]?.id
   const activeDay =
@@ -126,7 +153,112 @@ export function usePlannerState() {
   const usedWeekdays = new Set(days.map((day) => day.weekdayId))
   const availableWeekdays = WEEKDAYS.filter((day) => !usedWeekdays.has(day.id))
 
+  liveRef.current = {
+    days,
+    activeDayId: resolvedActiveDayId,
+    title,
+    customBackgroundSrc,
+    backgroundSize,
+    backgroundOpacity,
+    appMode,
+    artboardPresetId,
+    customAspectW,
+    customAspectH,
+    wallpaperPlacements,
+    stickerCategories,
+    activeCategoryId,
+  }
+
+  function clearHistory() {
+    historyRef.current = { past: [], future: [] }
+    historyGestureRef.current = false
+  }
+
+  function pushHistory() {
+    if (applyingHistoryRef.current || !liveRef.current) return
+    historyGestureRef.current = false
+    const { past } = historyRef.current
+    past.push(cloneHistoryState(liveRef.current))
+    if (past.length > MAX_UNDO_HISTORY) past.shift()
+    historyRef.current.future = []
+  }
+
+  /** First call in a drag/slider/typing session records one undo step. */
+  function ensureHistoryGesture() {
+    if (applyingHistoryRef.current || historyGestureRef.current) return
+    if (!liveRef.current) return
+    const { past } = historyRef.current
+    past.push(cloneHistoryState(liveRef.current))
+    if (past.length > MAX_UNDO_HISTORY) past.shift()
+    historyRef.current.future = []
+    historyGestureRef.current = true
+  }
+
+  function endHistoryGesture() {
+    historyGestureRef.current = false
+  }
+
+  function applyHistoryState(state) {
+    applyingHistoryRef.current = true
+    setDays(state.days)
+    setActiveDayId(state.activeDayId)
+    setTitle(state.title)
+    setCustomBackgroundSrc(state.customBackgroundSrc)
+    setBackgroundSize(state.backgroundSize)
+    setBackgroundOpacityState(state.backgroundOpacity)
+    setAppMode(state.appMode)
+    setArtboardPresetId(state.artboardPresetId)
+    setCustomAspectW(state.customAspectW)
+    setCustomAspectH(state.customAspectH)
+    setWallpaperPlacements(state.wallpaperPlacements)
+    setStickerCategories(state.stickerCategories)
+    setActiveCategoryId(state.activeCategoryId)
+    setSelectedStickerId(null)
+    setPendingStickerSrc(null)
+    setSelectedWallpaperDayIds([])
+    setRangeStart(null)
+    setHoverHour(null)
+    setEdgeHover(false)
+    historyGestureRef.current = false
+    queueMicrotask(() => {
+      applyingHistoryRef.current = false
+    })
+  }
+
+  function undo() {
+    const { past, future } = historyRef.current
+    if (!past.length || !liveRef.current) return false
+    future.push(cloneHistoryState(liveRef.current))
+    if (future.length > MAX_UNDO_HISTORY) future.shift()
+    const prev = past.pop()
+    applyHistoryState(prev)
+    return true
+  }
+
+  function redo() {
+    const { past, future } = historyRef.current
+    if (!future.length || !liveRef.current) return false
+    past.push(cloneHistoryState(liveRef.current))
+    if (past.length > MAX_UNDO_HISTORY) past.shift()
+    const next = future.pop()
+    applyHistoryState(next)
+    return true
+  }
+
+  useEffect(() => {
+    function onPointerEnd() {
+      endHistoryGesture()
+    }
+    window.addEventListener('pointerup', onPointerEnd)
+    window.addEventListener('pointercancel', onPointerEnd)
+    return () => {
+      window.removeEventListener('pointerup', onPointerEnd)
+      window.removeEventListener('pointercancel', onPointerEnd)
+    }
+  }, [])
+
   function applyProject(project) {
+    clearHistory()
     setDays(project.days)
     setActiveDayId(project.activeDayId)
     setTitle(project.title)
@@ -154,7 +286,7 @@ export function usePlannerState() {
         ? project.wallpaperPlacements
         : [],
     )
-    setSelectedWallpaperDayId(null)
+    setSelectedWallpaperDayIds([])
     setStickerCategories(project.stickerCategories)
     setActiveCategoryId(project.activeCategoryId)
     setPendingStickerSrc(null)
@@ -260,6 +392,7 @@ export function usePlannerState() {
     if (!file || !file.type.startsWith('image/')) return
     const reader = new FileReader()
     reader.onload = () => {
+      pushHistory()
       setCustomBackgroundSrc(reader.result)
       setBackgroundOpacityState(1)
     }
@@ -267,15 +400,18 @@ export function usePlannerState() {
   }
 
   function clearCustomBackground() {
+    pushHistory()
     setCustomBackgroundSrc(null)
     setBackgroundOpacityState(1)
   }
 
   function setBackgroundOpacity(nextOpacity) {
+    ensureHistoryGesture()
     setBackgroundOpacityState(Math.min(1, Math.max(0, nextOpacity)))
   }
 
   function changeTheme(nextThemeId) {
+    pushHistory()
     const next = getTheme(nextThemeId)
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
@@ -290,6 +426,7 @@ export function usePlannerState() {
   }
 
   function setSelectedColor(color) {
+    pushHistory()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
@@ -319,6 +456,7 @@ export function usePlannerState() {
 
     // New tabs start with whatever palette you were just using, so you
     // don't have to re-pick a theme every time you add a day.
+    pushHistory()
     const next = createEmptyDay(weekdayId, '', themeId, selectedColor)
     setDays((prev) => [...prev, next])
     selectDay(next.id)
@@ -328,6 +466,7 @@ export function usePlannerState() {
   function addCustomDay(label = '') {
     if (days.length >= MAX_DAYS) return
 
+    pushHistory()
     const trimmed = label.trim().slice(0, MAX_CUSTOM_DAY_LABEL_LENGTH)
     const next = createEmptyDay(
       null,
@@ -340,6 +479,7 @@ export function usePlannerState() {
   }
 
   function renameDay(dayId, label) {
+    ensureHistoryGesture()
     const trimmed =
       typeof label === 'string'
         ? label.slice(0, MAX_CUSTOM_DAY_LABEL_LENGTH)
@@ -352,6 +492,7 @@ export function usePlannerState() {
   function removeDay(dayId) {
     if (days.length <= 1) return
 
+    pushHistory()
     setDays((prev) => {
       const next = prev.filter((day) => day.id !== dayId)
       if (activeDayId === dayId) {
@@ -360,7 +501,7 @@ export function usePlannerState() {
       return next
     })
     setWallpaperPlacements((prev) => prev.filter((item) => item.dayId !== dayId))
-    if (selectedWallpaperDayId === dayId) setSelectedWallpaperDayId(null)
+    setSelectedWallpaperDayIds((prev) => prev.filter((id) => id !== dayId))
     resetRange()
     setSelectedStickerId(null)
     setPendingStickerSrc(null)
@@ -372,6 +513,7 @@ export function usePlannerState() {
 
     // Switching to "custom" — free the weekday and keep/seed a label.
     if (weekdayId == null) {
+      pushHistory()
       setDays((prev) =>
         prev.map((day) =>
           day.id === dayId
@@ -390,12 +532,14 @@ export function usePlannerState() {
       return
     }
 
+    pushHistory()
     setDays((prev) =>
       prev.map((day) => (day.id === dayId ? { ...day, weekdayId } : day)),
     )
   }
 
   function removeBlockAtHour(hour) {
+    pushHistory()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
@@ -405,6 +549,7 @@ export function usePlannerState() {
   }
 
   function handleResizeBlockEdge(blockId, edge, time) {
+    ensureHistoryGesture()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
@@ -415,8 +560,10 @@ export function usePlannerState() {
 
   function addLibraryStickers(files, categoryId = activeCategoryId) {
     const list = [...files]
-    list.forEach((file) => {
-      if (!file.type.startsWith('image/')) return
+    const images = list.filter((file) => file.type.startsWith('image/'))
+    if (images.length === 0) return
+    pushHistory()
+    images.forEach((file) => {
       const reader = new FileReader()
       reader.onload = () => {
         const src = reader.result
@@ -440,6 +587,7 @@ export function usePlannerState() {
   }
 
   function removeLibraryItem(stickerId, categoryId = activeCategoryId) {
+    pushHistory()
     setStickerCategories((prev) =>
       prev.map((category) => {
         if (category.id !== categoryId) return category
@@ -458,6 +606,7 @@ export function usePlannerState() {
   function addStickerCategory(name = '') {
     const label = typeof name === 'string' ? name : ''
     const id = createStickerId('cat')
+    pushHistory()
     setStickerCategories((prev) => [
       ...prev,
       { id, name: label, stickers: [] },
@@ -468,6 +617,7 @@ export function usePlannerState() {
   function removeStickerCategory(categoryId) {
     if (stickerCategories.length <= 1) return
 
+    pushHistory()
     setStickerCategories((prev) => {
       const next = prev.filter((category) => category.id !== categoryId)
       if (activeCategoryId === categoryId) {
@@ -478,6 +628,7 @@ export function usePlannerState() {
   }
 
   function renameStickerCategory(categoryId, name) {
+    ensureHistoryGesture()
     setStickerCategories((prev) =>
       prev.map((category) =>
         category.id === categoryId ? { ...category, name } : category,
@@ -488,6 +639,7 @@ export function usePlannerState() {
   function placeSticker(nx, ny, src = pendingStickerSrc) {
     if (!src) return
 
+    pushHistory()
     const next = {
       id: createStickerId(),
       src,
@@ -509,6 +661,7 @@ export function usePlannerState() {
   }
 
   function moveSticker(id, nx, ny) {
+    ensureHistoryGesture()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
@@ -526,6 +679,7 @@ export function usePlannerState() {
   }
 
   function resizeSticker(id, sizeRatio) {
+    ensureHistoryGesture()
     const clamped = Math.min(
       MAX_STICKER_SIZE_RATIO,
       Math.max(MIN_STICKER_SIZE_RATIO, sizeRatio),
@@ -541,6 +695,7 @@ export function usePlannerState() {
   }
 
   function rotateSticker(id, rotation) {
+    ensureHistoryGesture()
     const normalized = ((rotation % 360) + 360) % 360
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
@@ -553,15 +708,17 @@ export function usePlannerState() {
   }
 
   function resizeBackground(nextSize) {
+    ensureHistoryGesture()
     setBackgroundSize(Math.max(MIN_BACKGROUND_SIZE, Math.round(nextSize)))
   }
 
   function setMode(nextMode) {
+    pushHistory()
     setAppMode(nextMode)
     resetRange()
     setPendingStickerSrc(null)
     setSelectedStickerId(null)
-    setSelectedWallpaperDayId(null)
+    setSelectedWallpaperDayIds([])
     if (
       nextMode === APP_MODES.wallpaper &&
       wallpaperPlacements.length === 0 &&
@@ -572,6 +729,7 @@ export function usePlannerState() {
   }
 
   function setArtboardPreset(presetId) {
+    pushHistory()
     const nextId = resolveArtboardPresetId(presetId)
     setArtboardPresetId(nextId)
     const nextAspect = resolveArtboardAspect(
@@ -587,6 +745,7 @@ export function usePlannerState() {
   }
 
   function setCustomAspect(nextW, nextH) {
+    pushHistory()
     const w = clampAspectSide(nextW, customAspectW)
     const h = clampAspectSide(nextH, customAspectH)
     setCustomAspectW(w)
@@ -601,18 +760,24 @@ export function usePlannerState() {
   }
 
   function toggleWallpaperDay(dayId) {
+    const exists = wallpaperPlacements.some((item) => item.dayId === dayId)
+    pushHistory()
+    if (exists) {
+      setWallpaperPlacements((prev) =>
+        prev.filter((item) => item.dayId !== dayId),
+      )
+      setSelectedWallpaperDayIds((prev) => prev.filter((id) => id !== dayId))
+      return
+    }
     setWallpaperPlacements((prev) => {
-      const exists = prev.some((item) => item.dayId === dayId)
-      if (exists) {
-        return prev.filter((item) => item.dayId !== dayId)
-      }
       const nextIds = [...prev.map((item) => item.dayId), dayId]
       return autoLayoutWallpaper(nextIds, artboardAspect)
     })
-    setSelectedWallpaperDayId(dayId)
+    setSelectedWallpaperDayIds([dayId])
   }
 
   function autoArrangeWallpaper() {
+    pushHistory()
     setWallpaperPlacements((prev) => {
       const ids = prev.map((item) => item.dayId)
       if (ids.length === 0 && days[0]) {
@@ -623,10 +788,28 @@ export function usePlannerState() {
   }
 
   function moveWallpaperPlacement(dayId, nx, ny, boardAspect = artboardAspect) {
+    ensureHistoryGesture()
     setWallpaperPlacements((prev) =>
       prev.map((item) => {
         if (item.dayId !== dayId) return item
         return clampPlacement({ ...item, nx, ny }, boardAspect)
+      }),
+    )
+  }
+
+  /** Move several placements in one update (group drag). */
+  function moveWallpaperPlacements(updates, boardAspect = artboardAspect) {
+    if (!updates?.length) return
+    ensureHistoryGesture()
+    const byId = new Map(updates.map((item) => [item.dayId, item]))
+    setWallpaperPlacements((prev) =>
+      prev.map((item) => {
+        const next = byId.get(item.dayId)
+        if (!next) return item
+        return clampPlacement(
+          { ...item, nx: next.nx, ny: next.ny },
+          boardAspect,
+        )
       }),
     )
   }
@@ -640,15 +823,47 @@ export function usePlannerState() {
   }
 
   function resizeWallpaperPlacement(dayId, sizeRatio, boardAspect = artboardAspect) {
+    resizeWallpaperPlacements([dayId], sizeRatio, boardAspect)
+  }
+
+  /** Resize one or more placements to the same sizeRatio. */
+  function resizeWallpaperPlacements(
+    dayIds,
+    sizeRatio,
+    boardAspect = artboardAspect,
+  ) {
+    if (!dayIds?.length) return
+    ensureHistoryGesture()
+    const ids = new Set(dayIds)
     setWallpaperPlacements((prev) =>
       prev.map((item) => {
-        if (item.dayId !== dayId) return item
+        if (!ids.has(item.dayId)) return item
         return clampPlacement({ ...item, sizeRatio }, boardAspect)
       }),
     )
   }
 
+  function selectWallpaperPlacement(dayId, { additive = false } = {}) {
+    if (dayId == null) {
+      setSelectedWallpaperDayIds([])
+      return
+    }
+    if (Array.isArray(dayId)) {
+      setSelectedWallpaperDayIds(dayId)
+      return
+    }
+    setSelectedWallpaperDayIds((prev) => {
+      if (additive) {
+        return prev.includes(dayId)
+          ? prev.filter((id) => id !== dayId)
+          : [...prev, dayId]
+      }
+      return [dayId]
+    })
+  }
+
   function removeSticker(id) {
+    pushHistory()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
@@ -658,11 +873,63 @@ export function usePlannerState() {
     if (selectedStickerId === id) setSelectedStickerId(null)
   }
 
+  /** Copy the selected placed sticker into the in-app clipboard. */
+  function copySelectedSticker() {
+    if (!selectedStickerId) return false
+    const sticker = activeDay.stickers.find(
+      (item) => item.id === selectedStickerId,
+    )
+    if (!sticker) return false
+    stickerClipboardRef.current = {
+      src: sticker.src,
+      nx: sticker.nx,
+      ny: sticker.ny,
+      sizeRatio: sticker.sizeRatio,
+      rotation: sticker.rotation ?? DEFAULT_STICKER_ROTATION,
+    }
+    return true
+  }
+
+  /**
+   * Paste a cloned sticker onto the active day. Each successive paste
+   * nudges further by STICKER_PASTE_OFFSET so copies don't stack exactly.
+   */
+  function pasteSticker() {
+    const clip = stickerClipboardRef.current
+    if (!clip) return false
+
+    pushHistory()
+    const nx = Math.min(1, Math.max(0, clip.nx + STICKER_PASTE_OFFSET))
+    const ny = Math.min(1, Math.max(0, clip.ny + STICKER_PASTE_OFFSET))
+    const next = {
+      id: createStickerId(),
+      src: clip.src,
+      nx,
+      ny,
+      sizeRatio: clip.sizeRatio,
+      rotation: clip.rotation ?? DEFAULT_STICKER_ROTATION,
+    }
+
+    stickerClipboardRef.current = { ...clip, nx, ny }
+
+    setDays((prev) =>
+      updateActiveDay(prev, resolvedActiveDayId, (day) => ({
+        ...day,
+        stickers: [...day.stickers, next],
+      })),
+    )
+    setTool(TOOLS.sticker)
+    setPendingStickerSrc(null)
+    setSelectedStickerId(next.id)
+    return true
+  }
+
   function handleHourClick(hour) {
     if (tool === TOOLS.sticker) return
     if (hour == null) return
 
     if (tool === TOOLS.paint) {
+      pushHistory()
       setDays((prev) =>
         updateActiveDay(prev, resolvedActiveDayId, (day) => ({
           ...day,
@@ -742,13 +1009,15 @@ export function usePlannerState() {
     setArtboardPreset,
     setCustomAspect,
     wallpaperPlacements,
-    selectedWallpaperDayId,
-    setSelectedWallpaperDayId,
+    selectedWallpaperDayIds,
+    selectWallpaperPlacement,
     toggleWallpaperDay,
     autoArrangeWallpaper,
     moveWallpaperPlacement,
+    moveWallpaperPlacements,
     bringWallpaperToFront,
     resizeWallpaperPlacement,
+    resizeWallpaperPlacements,
     stickerCategories,
     activeCategoryId,
     setActiveCategoryId,
@@ -767,6 +1036,10 @@ export function usePlannerState() {
     resizeSticker,
     rotateSticker,
     removeSticker,
+    copySelectedSticker,
+    pasteSticker,
+    undo,
+    redo,
     saveProjectFile,
     loadProjectFromFile,
     resetProject,

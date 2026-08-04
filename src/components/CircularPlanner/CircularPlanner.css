@@ -418,6 +418,27 @@
   outline-offset: 2px;
 }
 
+.wallpaper-board__resize {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 2px solid #2c2a26;
+  border-radius: 2px;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.9);
+  pointer-events: auto;
+  cursor: nwse-resize;
+  touch-action: none;
+}
+
+.wallpaper-board__resize:focus-visible {
+  outline: 2px solid #2c2a26;
+  outline-offset: 1px;
+}
+
 .wallpaper-board__item .planner-canvas {
   pointer-events: none;
   cursor: grab;
