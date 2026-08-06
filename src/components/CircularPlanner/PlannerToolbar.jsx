@@ -183,6 +183,25 @@ function IconLoad() {
   )
 }
 
+function IconHelp() {
+  return (
+    <svg
+      className="planner-toolbar__icon"
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.6 9.4a2.5 2.5 0 1 1 3.6 2.2c-.7.4-1.2.9-1.2 1.7" />
+      <circle cx="12" cy="16.4" r="0.9" fill="currentColor" stroke="none" />
+    </svg>
+  )
+}
+
 /**
  * Shape hints for the artboard-preset buttons, replacing the Korean text
  * labels (세로/와이드/정사각/지정) with a plain visual read of what each
@@ -280,6 +299,92 @@ function IconExportPng() {
   )
 }
 
+const TUTORIAL_STEPS = [
+  {
+    title: '요일 만들기',
+    body: '위쪽 탭으로 스케줄을 고르고, +로 새 날을 추가해요. 이름도 바꿀 수 있어요.',
+  },
+  {
+    title: '색칠하기',
+    body: '물방울 버튼을 누른 뒤 원을 클릭·드래그해서 시간을 칠해요. 더블클릭하면 지워져요.',
+  },
+  {
+    title: '스티커',
+    body: '별 버튼에서 스티커를 고르고 원에 놓아요. Ctrl+C / Ctrl+V로 복사·붙여넣기할 수 있어요.',
+  },
+  {
+    title: '배경',
+    body: '이미지 버튼으로 배경 사진을 넣고 크기·투명도를 조절해요.',
+  },
+  {
+    title: '배치 모드',
+    body: '오른쪽 눈 아래 배치 아이콘으로 여러 요일을 한 화면에 모은 뒤 PNG로 저장해요.',
+  },
+  {
+    title: '실행 취소',
+    body: 'Ctrl+Z로 되돌리고, Ctrl+Y(또는 Ctrl+Shift+Z)로 다시 앞으로 갈 수 있어요.',
+  },
+]
+
+export function TutorialOverlay({ open, onClose }) {
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(event) {
+      if (event.key === 'Escape') onClose?.()
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
+  if (!open) return null
+
+  return (
+    <div
+      className="planner-tutorial"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="planner-tutorial-title"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose?.()
+      }}
+    >
+      <div className="planner-tutorial__card">
+        <div className="planner-tutorial__header">
+          <h2 id="planner-tutorial-title" className="planner-tutorial__title">
+            사용법 안내
+          </h2>
+          <button
+            type="button"
+            className="planner-tutorial__close"
+            aria-label="닫기"
+            title="닫기"
+            onClick={onClose}
+          >
+            <IconClose />
+          </button>
+        </div>
+        <ol className="planner-tutorial__list">
+          {TUTORIAL_STEPS.map((step, index) => (
+            <li key={step.title}>
+              <span className="planner-tutorial__step" aria-hidden="true">
+                {index + 1}
+              </span>
+              <div>
+                <strong>{step.title}</strong>
+                {step.body}
+              </div>
+            </li>
+          ))}
+        </ol>
+        <p className="planner-tutorial__foot">
+          사이드바 맨 위 가로 막대를 드래그하면 패널만 원하는 위치로 옮길 수 있어요.
+          더블클릭하면 원래 자리로 돌아가요.
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function PlannerToolbar({
   tool,
   onToolChange,
@@ -332,6 +437,13 @@ export default function PlannerToolbar({
   onExportWallpaperPng,
   transparentExport = false,
   onToggleTransparentExport,
+  onToolbarDragPointerDown,
+  onToolbarDragPointerMove,
+  onToolbarDragPointerUp,
+  onToolbarDragDoubleClick,
+  toolbarWrapRef,
+  toolbarDragging = false,
+  onOpenTutorial,
 }) {
   const fileRef = useRef(null)
   const bgRef = useRef(null)
@@ -348,8 +460,29 @@ export default function PlannerToolbar({
   const isWallpaper = appMode === APP_MODES.wallpaper
 
   return (
-    <div className="planner-toolbar-wrap">
+    <div
+      ref={toolbarWrapRef}
+      className={
+        toolbarDragging
+          ? 'planner-toolbar-wrap is-dragging'
+          : 'planner-toolbar-wrap'
+      }
+    >
     <aside className="planner-toolbar">
+      <button
+        type="button"
+        className="planner-toolbar__drag"
+        aria-label="사이드바 이동"
+        title="드래그해서 이동 · 더블클릭으로 원래 자리"
+        onPointerDown={onToolbarDragPointerDown}
+        onPointerMove={onToolbarDragPointerMove}
+        onPointerUp={onToolbarDragPointerUp}
+        onPointerCancel={onToolbarDragPointerUp}
+        onDoubleClick={onToolbarDragDoubleClick}
+      >
+        <span className="planner-toolbar__drag-bars" aria-hidden="true" />
+      </button>
+
       {/* 1) Day create / select / delete */}
       <div className="planner-toolbar__section">
         <DayTabs
@@ -821,6 +954,15 @@ export default function PlannerToolbar({
           onClick={() => loadRef.current?.click()}
         >
           <IconLoad />
+        </button>
+        <button
+          type="button"
+          className="planner-toolbar__btn"
+          aria-label="사용법 안내"
+          title="사용법 안내"
+          onClick={() => onOpenTutorial?.()}
+        >
+          <IconHelp />
         </button>
       </div>
         </>

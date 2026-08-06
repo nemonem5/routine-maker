@@ -193,6 +193,12 @@
   border-color: #2c2a26;
 }
 
+.planner-ui-toggle.is-active {
+  background: #2c2a26;
+  border-color: #2c2a26;
+  color: #f7f4ef;
+}
+
 .planner-ui-toggle__icon {
   width: 18px;
   height: 18px;
@@ -301,6 +307,14 @@
   flex-direction: column;
   align-items: flex-end;
   pointer-events: auto;
+  /* Offset from the default dock slot — chrome stays put; only this card moves. */
+  transform: translate(var(--toolbar-x, 0px), var(--toolbar-y, 0px));
+}
+
+.planner-toolbar-wrap.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+  z-index: 1;
 }
 
 .planner-toolbar {
@@ -314,13 +328,49 @@
   width: 132px;
   flex: 0 0 auto;
   max-height: 620px;
-  padding: 0.6rem;
+  padding: 0.45rem 0.6rem 0.6rem;
   border: 1px solid color-mix(in srgb, #2c2a26 12%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, #fff 82%, transparent);
   backdrop-filter: blur(8px);
   box-sizing: border-box;
   overflow: auto;
+}
+
+.planner-toolbar__drag {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 14px;
+  margin: 0 0 0.15rem;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: grab;
+  touch-action: none;
+  color: #c9c4bc;
+}
+
+.planner-toolbar__drag:hover,
+.planner-toolbar__drag:focus-visible {
+  color: #6a655e;
+}
+
+.planner-toolbar__drag:active {
+  cursor: grabbing;
+}
+
+.planner-toolbar__drag-bars {
+  display: block;
+  width: 28px;
+  height: 4px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 5px 0 currentColor;
+  opacity: 0.85;
 }
 
 .planner-toolbar__file {
@@ -503,6 +553,112 @@
   color: #928c82;
   font-size: 0.62rem;
   line-height: 1.35;
+}
+
+.planner-tutorial {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  box-sizing: border-box;
+  background: color-mix(in srgb, #2c2a26 42%, transparent);
+  backdrop-filter: blur(3px);
+}
+
+.planner-tutorial__card {
+  width: min(100%, 360px);
+  max-height: min(80svh, 520px);
+  overflow: auto;
+  padding: 1.15rem 1.2rem 1.25rem;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, #2c2a26 12%, transparent);
+  background: #f7f4ef;
+  color: #2c2a26;
+  box-shadow: 0 18px 48px color-mix(in srgb, #2c2a26 22%, transparent);
+  box-sizing: border-box;
+}
+
+.planner-tutorial__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.85rem;
+}
+
+.planner-tutorial__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+}
+
+.planner-tutorial__close {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid #c9c4bc;
+  border-radius: 999px;
+  background: #fff;
+  color: #2c2a26;
+  cursor: pointer;
+}
+
+.planner-tutorial__close:hover {
+  border-color: #2c2a26;
+}
+
+.planner-tutorial__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.planner-tutorial__list li {
+  display: grid;
+  grid-template-columns: 1.6rem 1fr;
+  gap: 0.55rem;
+  align-items: start;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: #3f3c37;
+}
+
+.planner-tutorial__list strong {
+  display: block;
+  margin-bottom: 0.12rem;
+  color: #2c2a26;
+  font-weight: 650;
+}
+
+.planner-tutorial__step {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.45rem;
+  height: 1.45rem;
+  border-radius: 999px;
+  background: #2c2a26;
+  color: #f7f4ef;
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.planner-tutorial__foot {
+  margin: 0.95rem 0 0;
+  color: #928c82;
+  font-size: 0.68rem;
+  line-height: 1.4;
 }
 
 .planner-toolbar__btn {

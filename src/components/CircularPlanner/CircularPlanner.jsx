@@ -6,11 +6,44 @@ import {
 } from '../../constants/planner'
 import { exportWallpaperPng } from '../../utils/exportWallpaper'
 import PlannerCanvas from './PlannerCanvas'
-import PlannerToolbar from './PlannerToolbar'
+import PlannerToolbar, { TutorialOverlay } from './PlannerToolbar'
 import WallpaperBoard from './WallpaperBoard'
 import { usePlannerState } from './usePlannerState'
 import { useStickerImages } from './useStickerImages'
 import './CircularPlanner.css'
+
+const TOOLBAR_OFFSET_KEY = 'routine-maker-toolbar-offset'
+
+function readStoredToolbarOffset() {
+  try {
+    const raw = localStorage.getItem(TOOLBAR_OFFSET_KEY)
+    if (!raw) return { x: 0, y: 0 }
+    const parsed = JSON.parse(raw)
+    if (
+      typeof parsed?.x === 'number' &&
+      typeof parsed?.y === 'number' &&
+      Number.isFinite(parsed.x) &&
+      Number.isFinite(parsed.y)
+    ) {
+      return { x: parsed.x, y: parsed.y }
+    }
+  } catch {
+    // ignore corrupt storage
+  }
+  return { x: 0, y: 0 }
+}
+
+function clampToolbarOffset(x, y, visualLeft, visualTop, width, height, scale) {
+  const safeScale = scale > 0 ? scale : 1
+  const maxLeft = Math.max(0, window.innerWidth - width)
+  const maxTop = Math.max(0, window.innerHeight - height)
+  const nextLeft = Math.min(maxLeft, Math.max(0, visualLeft))
+  const nextTop = Math.min(maxTop, Math.max(0, visualTop))
+  return {
+    x: x + (nextLeft - visualLeft) / safeScale,
+    y: y + (nextTop - visualTop) / safeScale,
+  }
+}
 
 function IconEye({ crossed }) {
   return (
@@ -149,8 +182,13 @@ export default function CircularPlanner() {
   } = usePlannerState()
 
   const [bgEditMode, setBgEditMode] = useState(false)
+  const [tutorialOpen, setTutorialOpen] = useState(false)
   const stageRef = useRef(null)
   const bgDragRef = useRef(null)
+  const toolbarRef = useRef(null)
+  const toolbarDragRef = useRef(null)
+  const [toolbarOffset, setToolbarOffset] = useState(() => readStoredToolbarOffset())
+  const [toolbarDragging, setToolbarDragging] = useState(false)
 
   // Keep the stage fitted inside the viewport — like the fixed toolbar,
   // it should never require scrolling, even after resize/reload with a
@@ -228,6 +266,94 @@ export default function CircularPlanner() {
     return WINDOW_UI_FLOOR + t * (1 - WINDOW_UI_FLOOR)
   })()
   const dockScale = uiScale * windowUiScale
+
+  useEffect(() => {
+    if (!toolbarRef.current) return
+    setToolbarOffset((prev) => {
+      if (prev.x === 0 && prev.y === 0) return prev
+      const rect = toolbarRef.current.getBoundingClientRect()
+      const next = clampToolbarOffset(
+        prev.x,
+        prev.y,
+        rect.left,
+        rect.top,
+        rect.width,
+        rect.height,
+        dockScale,
+      )
+      if (next.x === prev.x && next.y === prev.y) return prev
+      persistToolbarOffset(next)
+      return next
+    })
+  }, [viewportSize.width, viewportSize.height, dockScale])
+
+  function persistToolbarOffset(next) {
+    try {
+      localStorage.setItem(TOOLBAR_OFFSET_KEY, JSON.stringify(next))
+    } catch {
+      // ignore
+    }
+  }
+
+  function handleToolbarDragPointerDown(event) {
+    if (event.button != null && event.button !== 0) return
+    const el = toolbarRef.current
+    if (!el) return
+    event.preventDefault()
+    const rect = el.getBoundingClientRect()
+    setToolbarDragging(true)
+    toolbarDragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: toolbarOffset.x,
+      originY: toolbarOffset.y,
+      visualLeft: rect.left,
+      visualTop: rect.top,
+      width: rect.width,
+      height: rect.height,
+    }
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+  }
+
+  function handleToolbarDragPointerMove(event) {
+    const drag = toolbarDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    const screenDx = event.clientX - drag.startX
+    const screenDy = event.clientY - drag.startY
+    const proposedLeft = drag.visualLeft + screenDx
+    const proposedTop = drag.visualTop + screenDy
+    const next = clampToolbarOffset(
+      drag.originX + screenDx / dockScale,
+      drag.originY + screenDy / dockScale,
+      proposedLeft,
+      proposedTop,
+      drag.width,
+      drag.height,
+      dockScale,
+    )
+    setToolbarOffset(next)
+  }
+
+  function handleToolbarDragPointerUp(event) {
+    const drag = toolbarDragRef.current
+    if (!drag || drag.pointerId !== event.pointerId) return
+    toolbarDragRef.current = null
+    setToolbarDragging(false)
+    setToolbarOffset((prev) => {
+      persistToolbarOffset(prev)
+      return prev
+    })
+    event.currentTarget.releasePointerCapture?.(event.pointerId)
+  }
+
+  function handleToolbarDragDoubleClick() {
+    toolbarDragRef.current = null
+    setToolbarDragging(false)
+    const reset = { x: 0, y: 0 }
+    setToolbarOffset(reset)
+    persistToolbarOffset(reset)
+  }
 
   const imageSources = useMemo(() => {
     const fromLibrary = stickerCategories.flatMap((category) =>
@@ -531,7 +657,11 @@ export default function CircularPlanner() {
 
       <div
         className="planner-ui-rail"
-        style={{ '--ui-zoom-scale': dockScale }}
+        style={{
+          '--ui-zoom-scale': dockScale,
+          '--toolbar-x': `${toolbarOffset.x}px`,
+          '--toolbar-y': `${toolbarOffset.y}px`,
+        }}
       >
       <div className="planner-chrome">
         <button
@@ -633,9 +763,20 @@ export default function CircularPlanner() {
           onExportWallpaperPng={handleExportWallpaperPng}
           transparentExport={transparentExport}
           onToggleTransparentExport={() => setTransparentExport((prev) => !prev)}
+          toolbarWrapRef={toolbarRef}
+          toolbarDragging={toolbarDragging}
+          onToolbarDragPointerDown={handleToolbarDragPointerDown}
+          onToolbarDragPointerMove={handleToolbarDragPointerMove}
+          onToolbarDragPointerUp={handleToolbarDragPointerUp}
+          onToolbarDragDoubleClick={handleToolbarDragDoubleClick}
+          onOpenTutorial={() => setTutorialOpen(true)}
         />
       )}
       </div>
+      <TutorialOverlay
+        open={tutorialOpen}
+        onClose={() => setTutorialOpen(false)}
+      />
     </div>
   )
 }
