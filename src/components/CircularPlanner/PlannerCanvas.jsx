@@ -25,7 +25,7 @@ export default function PlannerCanvas({
   stickers,
   imageCache,
   imageVersion,
-  selectedStickerId,
+  selectedStickerIds = [],
   previewRange,
   previewColor,
   rangeStart,
@@ -43,7 +43,7 @@ export default function PlannerCanvas({
   onResizeBlockEdge,
   onPlaceSticker,
   onSelectSticker,
-  onMoveSticker,
+  onMoveStickers,
   onResizeSticker,
   onRotateSticker,
 }) {
@@ -51,6 +51,9 @@ export default function PlannerCanvas({
   const dragRef = useRef(null)
   const pendingPaintRef = useRef(null)
   const paintTimerRef = useRef(null)
+  const selectedSet = new Set(selectedStickerIds)
+  const primarySelectedId =
+    selectedStickerIds[selectedStickerIds.length - 1] ?? null
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -74,7 +77,7 @@ export default function PlannerCanvas({
       blocks,
       stickers,
       imageCache,
-      selectedStickerId,
+      selectedStickerIds,
       previewRange,
       previewColor,
       rangeStart,
@@ -90,7 +93,7 @@ export default function PlannerCanvas({
     imageVersion,
     backgroundImage,
     backgroundVersion,
-    selectedStickerId,
+    selectedStickerIds,
     previewRange,
     previewColor,
     rangeStart,
@@ -127,25 +130,25 @@ export default function PlannerCanvas({
     const hit = hitTestSticker(x, y, stickers, size, stickerAspect)
 
     if (tool === TOOLS.sticker) {
-      const selected = stickers.find((item) => item.id === selectedStickerId)
-      if (selected) {
+      const primary = stickers.find((item) => item.id === primarySelectedId)
+      if (primary) {
         const corner = hitTestStickerHandle(
           x,
           y,
-          selected,
+          primary,
           size,
-          stickerAspect(selected),
+          stickerAspect(primary),
         )
         if (corner === 'rotate') {
-          dragRef.current = { kind: 'sticker-rotate', id: selected.id }
+          dragRef.current = { kind: 'sticker-rotate', id: primary.id }
           canvasRef.current?.setPointerCapture?.(event.pointerId)
           return
         }
         if (corner) {
           dragRef.current = {
             kind: 'sticker-resize',
-            id: selected.id,
-            aspect: stickerAspect(selected),
+            id: primary.id,
+            aspect: stickerAspect(primary),
           }
           canvasRef.current?.setPointerCapture?.(event.pointerId)
           return
@@ -153,12 +156,38 @@ export default function PlannerCanvas({
       }
 
       if (hit) {
-        onSelectSticker?.(hit.id)
+        // Shift/Ctrl/Meta+click toggles multi-select without starting a drag.
+        const additive = event.shiftKey || event.ctrlKey || event.metaKey
+        if (additive) {
+          onSelectSticker?.(hit.id, { additive: true })
+          return
+        }
+
+        const alreadySelected = selectedSet.has(hit.id)
+        const groupIds = alreadySelected
+          ? selectedStickerIds.filter((id) =>
+              stickers.some((item) => item.id === id),
+            )
+          : [hit.id]
+
+        if (!alreadySelected) {
+          onSelectSticker?.(hit.id)
+        }
+
+        const origins = Object.fromEntries(
+          groupIds.map((id) => {
+            const item = stickers.find((entry) => entry.id === id)
+            return [id, { nx: item.nx, ny: item.ny }]
+          }),
+        )
+
         dragRef.current = {
           kind: 'sticker',
           id: hit.id,
-          offsetX: x - hit.nx * size,
-          offsetY: y - hit.ny * size,
+          groupIds,
+          origins,
+          originPointerX: x,
+          originPointerY: y,
         }
         canvasRef.current?.setPointerCapture?.(event.pointerId)
         return
@@ -203,11 +232,17 @@ export default function PlannerCanvas({
     const drag = dragRef.current
 
     if (drag?.kind === 'sticker') {
-      onMoveSticker?.(
-        drag.id,
-        (x - drag.offsetX) / size,
-        (y - drag.offsetY) / size,
-      )
+      const dx = (x - drag.originPointerX) / size
+      const dy = (y - drag.originPointerY) / size
+      const updates = drag.groupIds.map((id) => {
+        const origin = drag.origins[id]
+        return {
+          id,
+          nx: origin.nx + dx,
+          ny: origin.ny + dy,
+        }
+      })
+      onMoveStickers?.(updates)
       return
     }
 
@@ -271,8 +306,8 @@ export default function PlannerCanvas({
       onHourHover?.(edge ? null : hitTestHour(x, y, layout))
     }
 
-    if (tool === TOOLS.sticker && selectedStickerId && !drag) {
-      const selected = stickers.find((item) => item.id === selectedStickerId)
+    if (tool === TOOLS.sticker && primarySelectedId && !drag) {
+      const selected = stickers.find((item) => item.id === primarySelectedId)
       const canvas = canvasRef.current
       if (selected && canvas) {
         const corner = hitTestStickerHandle(

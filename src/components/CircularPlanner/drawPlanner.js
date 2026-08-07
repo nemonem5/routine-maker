@@ -28,7 +28,7 @@ export function drawPlanner(ctx, size, options = {}) {
     blocks = [],
     stickers = [],
     imageCache = null,
-    selectedStickerId = null,
+    selectedStickerIds = [],
     previewRange = null,
     previewColor = null,
     rangeStart = null,
@@ -67,7 +67,7 @@ export function drawPlanner(ctx, size, options = {}) {
   drawDividers(ctx, layout, style, blocks)
   drawOuterStroke(ctx, layout, style, ringStroke)
   drawHourLabels(ctx, layout, style, labelColor)
-  drawStickers(ctx, size, stickers, imageCache, selectedStickerId, ringStroke, scale)
+  drawStickers(ctx, size, stickers, imageCache, selectedStickerIds, ringStroke, scale)
   drawAnchorHour(ctx, layout, rangeStart, ringStroke, style)
 }
 
@@ -203,11 +203,15 @@ function drawStickers(
   size,
   stickers,
   imageCache,
-  selectedStickerId,
+  selectedStickerIds,
   ringStroke,
   scale = 1,
 ) {
   if (!stickers?.length) return
+
+  const selectedSet = new Set(selectedStickerIds ?? [])
+  const primaryId =
+    selectedStickerIds?.[selectedStickerIds.length - 1] ?? null
 
   for (const sticker of stickers) {
     const img = imageCache?.get?.(sticker.src)
@@ -219,6 +223,8 @@ function drawStickers(
     const cx = sticker.nx * size
     const cy = sticker.ny * size
     const rotationRad = ((sticker.rotation || 0) * Math.PI) / 180
+    const isSelected = selectedSet.has(sticker.id)
+    const isPrimary = sticker.id === primaryId
 
     // Everything below is drawn in the sticker's own local space (centered
     // on origin, unrotated) — translate+rotate once so the image, selection
@@ -228,46 +234,49 @@ function drawStickers(
     ctx.rotate(rotationRad)
     ctx.drawImage(img, -width / 2, -height / 2, width, height)
 
-    if (sticker.id === selectedStickerId) {
+    if (isSelected) {
       ctx.strokeStyle = ringStroke
       ctx.lineWidth = 1.25
       ctx.setLineDash([4, 3])
       ctx.strokeRect(-width / 2 - 2, -height / 2 - 2, width + 4, height + 4)
       ctx.setLineDash([])
 
-      const handleSize = 8
-      const corners = [
-        [-width / 2, -height / 2],
-        [width / 2, -height / 2],
-        [-width / 2, height / 2],
-        [width / 2, height / 2],
-      ]
-      ctx.fillStyle = '#fff'
-      ctx.strokeStyle = ringStroke
-      ctx.lineWidth = 1.25
-      for (const [hx, hy] of corners) {
+      // Resize/rotate handles only on the primary (last-selected) sticker.
+      if (isPrimary) {
+        const handleSize = 8
+        const corners = [
+          [-width / 2, -height / 2],
+          [width / 2, -height / 2],
+          [-width / 2, height / 2],
+          [width / 2, height / 2],
+        ]
+        ctx.fillStyle = '#fff'
+        ctx.strokeStyle = ringStroke
+        ctx.lineWidth = 1.25
+        for (const [hx, hy] of corners) {
+          ctx.beginPath()
+          ctx.rect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize)
+          ctx.fill()
+          ctx.stroke()
+        }
+
+        // Rotate handle: a small circle above the top edge, on a stalk — its
+        // world position must match getStickerHandles().rotate exactly.
+        const rotateGap = STICKER_ROTATE_HANDLE_GAP * scale
+        const rotateRadius = STICKER_ROTATE_HANDLE_RADIUS * scale
+        const rotateY = -height / 2 - rotateGap
+        ctx.lineWidth = 1.25
         ctx.beginPath()
-        ctx.rect(hx - handleSize / 2, hy - handleSize / 2, handleSize, handleSize)
+        ctx.moveTo(0, -height / 2)
+        ctx.lineTo(0, rotateY)
+        ctx.stroke()
+
+        ctx.beginPath()
+        ctx.arc(0, rotateY, rotateRadius, 0, Math.PI * 2)
+        ctx.fillStyle = '#fff'
         ctx.fill()
         ctx.stroke()
       }
-
-      // Rotate handle: a small circle above the top edge, on a stalk — its
-      // world position must match getStickerHandles().rotate exactly.
-      const rotateGap = STICKER_ROTATE_HANDLE_GAP * scale
-      const rotateRadius = STICKER_ROTATE_HANDLE_RADIUS * scale
-      const rotateY = -height / 2 - rotateGap
-      ctx.lineWidth = 1.25
-      ctx.beginPath()
-      ctx.moveTo(0, -height / 2)
-      ctx.lineTo(0, rotateY)
-      ctx.stroke()
-
-      ctx.beginPath()
-      ctx.arc(0, rotateY, rotateRadius, 0, Math.PI * 2)
-      ctx.fillStyle = '#fff'
-      ctx.fill()
-      ctx.stroke()
     }
 
     ctx.restore()

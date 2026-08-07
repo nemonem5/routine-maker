@@ -160,18 +160,18 @@ export default function CircularPlanner() {
     stickerLibrary,
     pendingStickerSrc,
     setPendingStickerSrc,
-    selectedStickerId,
-    setSelectedStickerId,
+    selectedStickerIds,
+    selectSticker,
     addLibraryStickers,
     removeLibraryItem,
     addStickerCategory,
     removeStickerCategory,
     renameStickerCategory,
     placeSticker,
-    moveSticker,
+    moveStickers,
     resizeSticker,
     rotateSticker,
-    removeSticker,
+    removeStickers,
     copySelectedSticker,
     pasteSticker,
     undo,
@@ -403,13 +403,13 @@ export default function CircularPlanner() {
 
       if (event.key === 'Delete' || event.key === 'Backspace') {
         if (inField) return
-        if (selectedStickerId) {
+        if (selectedStickerIds.length) {
           event.preventDefault()
-          removeSticker(selectedStickerId)
+          removeStickers(selectedStickerIds)
         }
       }
       if (event.key === 'Escape') {
-        setSelectedStickerId(null)
+        selectSticker(null)
         setPendingStickerSrc(null)
         selectWallpaperPlacement(null)
         setBgEditMode(false)
@@ -422,15 +422,15 @@ export default function CircularPlanner() {
   }, [
     uiHidden,
     appMode,
-    selectedStickerId,
-    removeSticker,
+    selectedStickerIds,
+    removeStickers,
     copySelectedSticker,
     pasteSticker,
     undo,
     redo,
     selectWallpaperPlacement,
     wallpaperPlacements,
-    setSelectedStickerId,
+    selectSticker,
     setPendingStickerSrc,
     resetRange,
   ])
@@ -469,7 +469,7 @@ export default function CircularPlanner() {
     // disabled (PlannerCanvas gets interactive=false), so drop any leftover
     // selection/preview state instead of leaving stale handles on screen.
     resetRange()
-    setSelectedStickerId(null)
+    selectSticker(null)
     setPendingStickerSrc(null)
   }
 
@@ -618,7 +618,7 @@ export default function CircularPlanner() {
           stickers={stickers}
           imageCache={imageCache}
           imageVersion={imageVersion}
-          selectedStickerId={uiHidden ? null : selectedStickerId}
+          selectedStickerIds={uiHidden ? [] : selectedStickerIds}
           previewRange={uiHidden ? null : previewRange}
           previewColor={selectedColor}
           rangeStart={uiHidden ? null : rangeStart}
@@ -633,8 +633,8 @@ export default function CircularPlanner() {
           onEdgeHover={setEdgeHover}
           onResizeBlockEdge={handleResizeBlockEdge}
           onPlaceSticker={placeSticker}
-          onSelectSticker={setSelectedStickerId}
-          onMoveSticker={moveSticker}
+          onSelectSticker={selectSticker}
+          onMoveStickers={moveStickers}
           onResizeSticker={resizeSticker}
           onRotateSticker={rotateSticker}
         />
@@ -747,9 +747,9 @@ export default function CircularPlanner() {
           onSelectLibrarySticker={setPendingStickerSrc}
           onAddStickers={addLibraryStickers}
           onRemoveLibraryItem={removeLibraryItem}
-          selectedStickerId={selectedStickerId}
+          selectedStickerIds={selectedStickerIds}
           onDeleteSelected={() =>
-            selectedStickerId && removeSticker(selectedStickerId)
+            selectedStickerIds.length && removeStickers(selectedStickerIds)
           }
           appMode={appMode}
           wallpaperDayIds={wallpaperPlacements.map((item) => item.dayId)}

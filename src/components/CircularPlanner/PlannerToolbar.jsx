@@ -423,7 +423,7 @@ export default function PlannerToolbar({
   onSelectLibrarySticker,
   onAddStickers,
   onRemoveLibraryItem,
-  selectedStickerId,
+  selectedStickerIds = [],
   onDeleteSelected,
   appMode,
   wallpaperDayIds = [],
@@ -862,13 +862,17 @@ export default function PlannerToolbar({
             </div>
           </div>
 
-          {selectedStickerId && (
+          {selectedStickerIds.length > 0 && (
             <div className="planner-toolbar__sticker-actions">
               <button
                 type="button"
                 className="planner-toolbar__btn planner-toolbar__btn--ghost"
-                aria-label="배치된 스티커 삭제"
-                title="배치된 스티커 삭제"
+                aria-label="선택한 스티커 삭제"
+                title={
+                  selectedStickerIds.length > 1
+                    ? `선택한 스티커 ${selectedStickerIds.length}개 삭제`
+                    : '배치된 스티커 삭제'
+                }
                 onClick={onDeleteSelected}
               >
                 <IconTrash />

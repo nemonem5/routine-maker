@@ -125,7 +125,8 @@ export function usePlannerState() {
     DEFAULT_STICKER_CATEGORY_ID,
   )
   const [pendingStickerSrc, setPendingStickerSrc] = useState(null)
-  const [selectedStickerId, setSelectedStickerId] = useState(null)
+  /** Ordered selection — last id is the primary (handles / focus). */
+  const [selectedStickerIds, setSelectedStickerIds] = useState([])
   /** In-memory sticker clipboard for Ctrl+C / Ctrl+V (not the OS clipboard). */
   const stickerClipboardRef = useRef(null)
   const historyRef = useRef({ past: [], future: [] })
@@ -213,7 +214,7 @@ export function usePlannerState() {
     setWallpaperPlacements(state.wallpaperPlacements)
     setStickerCategories(state.stickerCategories)
     setActiveCategoryId(state.activeCategoryId)
-    setSelectedStickerId(null)
+    setSelectedStickerIds([])
     setPendingStickerSrc(null)
     setSelectedWallpaperDayIds([])
     setRangeStart(null)
@@ -290,7 +291,7 @@ export function usePlannerState() {
     setStickerCategories(project.stickerCategories)
     setActiveCategoryId(project.activeCategoryId)
     setPendingStickerSrc(null)
-    setSelectedStickerId(null)
+    setSelectedStickerIds([])
     setRangeStart(null)
     setHoverHour(null)
     setTool(TOOLS.paint)
@@ -384,7 +385,7 @@ export function usePlannerState() {
     resetRange()
     if (resolved !== TOOLS.sticker) {
       setPendingStickerSrc(null)
-      setSelectedStickerId(null)
+      setSelectedStickerIds([])
     }
   }
 
@@ -438,7 +439,7 @@ export function usePlannerState() {
   function selectDay(dayId) {
     setActiveDayId(dayId)
     resetRange()
-    setSelectedStickerId(null)
+    setSelectedStickerIds([])
     setPendingStickerSrc(null)
   }
 
@@ -503,7 +504,7 @@ export function usePlannerState() {
     setWallpaperPlacements((prev) => prev.filter((item) => item.dayId !== dayId))
     setSelectedWallpaperDayIds((prev) => prev.filter((id) => id !== dayId))
     resetRange()
-    setSelectedStickerId(null)
+    setSelectedStickerIds([])
     setPendingStickerSrc(null)
   }
 
@@ -655,25 +656,55 @@ export function usePlannerState() {
         stickers: [...day.stickers, next],
       })),
     )
-    setSelectedStickerId(next.id)
+    setSelectedStickerIds([next.id])
     // One placement per drag/select — must pull again to place another
     setPendingStickerSrc(null)
   }
 
+  /**
+   * Select placed stickers. Pass null/empty to clear.
+   * With `{ additive: true }` (Shift/Ctrl/Meta+click), toggle membership.
+   */
+  function selectSticker(id, { additive = false } = {}) {
+    if (id == null) {
+      setSelectedStickerIds([])
+      return
+    }
+    if (Array.isArray(id)) {
+      setSelectedStickerIds(id)
+      return
+    }
+    setSelectedStickerIds((prev) => {
+      if (additive) {
+        return prev.includes(id)
+          ? prev.filter((item) => item !== id)
+          : [...prev, id]
+      }
+      return [id]
+    })
+  }
+
   function moveSticker(id, nx, ny) {
+    moveStickers([{ id, nx, ny }])
+  }
+
+  /** Move several stickers in one update (group drag). */
+  function moveStickers(updates) {
+    if (!updates?.length) return
     ensureHistoryGesture()
+    const byId = new Map(updates.map((item) => [item.id, item]))
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
-        stickers: day.stickers.map((sticker) =>
-          sticker.id === id
-            ? {
-                ...sticker,
-                nx: Math.min(1, Math.max(0, nx)),
-                ny: Math.min(1, Math.max(0, ny)),
-              }
-            : sticker,
-        ),
+        stickers: day.stickers.map((sticker) => {
+          const next = byId.get(sticker.id)
+          if (!next) return sticker
+          return {
+            ...sticker,
+            nx: Math.min(1, Math.max(0, next.nx)),
+            ny: Math.min(1, Math.max(0, next.ny)),
+          }
+        }),
       })),
     )
   }
@@ -717,7 +748,7 @@ export function usePlannerState() {
     setAppMode(nextMode)
     resetRange()
     setPendingStickerSrc(null)
-    setSelectedStickerId(null)
+    setSelectedStickerIds([])
     setSelectedWallpaperDayIds([])
     if (
       nextMode === APP_MODES.wallpaper &&
@@ -863,64 +894,80 @@ export function usePlannerState() {
   }
 
   function removeSticker(id) {
+    removeStickers([id])
+  }
+
+  /** Remove one or more placed stickers in a single history step. */
+  function removeStickers(ids) {
+    const idSet = new Set(Array.isArray(ids) ? ids : [ids])
+    if (!idSet.size) return
     pushHistory()
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
-        stickers: day.stickers.filter((sticker) => sticker.id !== id),
+        stickers: day.stickers.filter((sticker) => !idSet.has(sticker.id)),
       })),
     )
-    if (selectedStickerId === id) setSelectedStickerId(null)
+    setSelectedStickerIds((prev) => prev.filter((id) => !idSet.has(id)))
   }
 
-  /** Copy the selected placed sticker into the in-app clipboard. */
+  /** Snapshot selected placed stickers into the in-app clipboard. */
   function copySelectedSticker() {
-    if (!selectedStickerId) return false
-    const sticker = activeDay.stickers.find(
-      (item) => item.id === selectedStickerId,
+    if (!selectedStickerIds.length) return false
+    const selected = activeDay.stickers.filter((item) =>
+      selectedStickerIds.includes(item.id),
     )
-    if (!sticker) return false
-    stickerClipboardRef.current = {
+    if (!selected.length) return false
+    // Preserve canvas stacking order so paste restores relative layout.
+    stickerClipboardRef.current = selected.map((sticker) => ({
       src: sticker.src,
       nx: sticker.nx,
       ny: sticker.ny,
       sizeRatio: sticker.sizeRatio,
       rotation: sticker.rotation ?? DEFAULT_STICKER_ROTATION,
-    }
+    }))
     return true
   }
 
   /**
-   * Paste a cloned sticker onto the active day. Each successive paste
+   * Paste clipboard stickers onto the active day. Each successive paste
    * nudges further by STICKER_PASTE_OFFSET so copies don't stack exactly.
    */
   function pasteSticker() {
     const clip = stickerClipboardRef.current
-    if (!clip) return false
+    if (!clip?.length) return false
 
     pushHistory()
-    const nx = Math.min(1, Math.max(0, clip.nx + STICKER_PASTE_OFFSET))
-    const ny = Math.min(1, Math.max(0, clip.ny + STICKER_PASTE_OFFSET))
-    const next = {
-      id: createStickerId(),
-      src: clip.src,
-      nx,
-      ny,
-      sizeRatio: clip.sizeRatio,
-      rotation: clip.rotation ?? DEFAULT_STICKER_ROTATION,
-    }
+    const nextItems = clip.map((item) => {
+      const nx = Math.min(1, Math.max(0, item.nx + STICKER_PASTE_OFFSET))
+      const ny = Math.min(1, Math.max(0, item.ny + STICKER_PASTE_OFFSET))
+      return {
+        id: createStickerId(),
+        src: item.src,
+        nx,
+        ny,
+        sizeRatio: item.sizeRatio,
+        rotation: item.rotation ?? DEFAULT_STICKER_ROTATION,
+      }
+    })
 
-    stickerClipboardRef.current = { ...clip, nx, ny }
+    stickerClipboardRef.current = nextItems.map((item) => ({
+      src: item.src,
+      nx: item.nx,
+      ny: item.ny,
+      sizeRatio: item.sizeRatio,
+      rotation: item.rotation,
+    }))
 
     setDays((prev) =>
       updateActiveDay(prev, resolvedActiveDayId, (day) => ({
         ...day,
-        stickers: [...day.stickers, next],
+        stickers: [...day.stickers, ...nextItems],
       })),
     )
     setTool(TOOLS.sticker)
     setPendingStickerSrc(null)
-    setSelectedStickerId(next.id)
+    setSelectedStickerIds(nextItems.map((item) => item.id))
     return true
   }
 
@@ -1024,8 +1071,8 @@ export function usePlannerState() {
     stickerLibrary,
     pendingStickerSrc,
     setPendingStickerSrc,
-    selectedStickerId,
-    setSelectedStickerId,
+    selectedStickerIds,
+    selectSticker,
     addLibraryStickers,
     removeLibraryItem,
     addStickerCategory,
@@ -1033,9 +1080,11 @@ export function usePlannerState() {
     renameStickerCategory,
     placeSticker,
     moveSticker,
+    moveStickers,
     resizeSticker,
     rotateSticker,
     removeSticker,
+    removeStickers,
     copySelectedSticker,
     pasteSticker,
     undo,
